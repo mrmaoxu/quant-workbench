@@ -1,0 +1,76 @@
+{
+ "strategy_setting": {
+  "etf_pool": [
+   "518880",
+   "159509",
+   "588000",
+   "501225",
+   "513100",
+   "513310",
+   "159915",
+   "162719",
+   "159985",
+   "513030",
+   "513290",
+   "513520"
+  ],
+  "initial_capital": 5000.0,
+  "momentum_period": 20,
+  "momentum_calculation_type": "weighted_slope",
+  "momentum_config_groups": [
+   {
+    "exclude_today": false,
+    "momentum_period": 20,
+    "momentum_threshold": 0,
+    "momentum_upper_threshold": 3,
+    "momentum_calculation_type": "weighted_slope"
+   },
+   {
+    "exclude_today": false,
+    "momentum_period": 26,
+    "momentum_threshold": 0,
+    "momentum_upper_threshold": 10,
+    "momentum_calculation_type": "weighted_slope"
+   }
+  ],
+  "momentum_threshold": 0.0,
+  "momentum_upper_threshold": 3.0,
+  "take_profit_enabled": false,
+  "take_profit_threshold": 0.2,
+  "take_profit_method": "profit_based",
+  "recent_days_profit_period": 5,
+  "take_profit_cooldown_days": 3,
+  "min_hold_days": 2,
+  "default_min_hold_days": null,
+  "days_count_type": "trading_days",
+  "stop_loss_enabled": false,
+  "stop_loss_threshold": 0.06,
+  "stop_loss_methods": [
+   "percentage"
+  ],
+  "drawdown_stop_threshold": 0.04,
+  "stop_loss_freeze_days": 0,
+  "fallback_etf": "0",
+  "trading_timing": "close_price",
+  "top_n": 1,
+  "reserve_cash_hold_max": false,
+  "commission": 0.00015,
+  "slippage": 0.001,
+  "fixed_rebalance_period": false,
+  "extreme_filter_conditions": [
+   "one_day_limit_down",
+   "one_day_limit_up"
+  ],
+  "market_timing_code": null,
+  "condition_filter_config": null,
+  "capital_reserve_ratio": 0.02,
+  "fund_account": "",
+  "trade_mode": null,
+  "execute_time": "14:50:00",
+  "exec_time": null,
+  "immediate_position": false,
+  "exclude_today": false,
+  "sell_conditions": null
+ },
+ "init_capital": 5000.0
+}

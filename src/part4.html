@@ -1,0 +1,118 @@
+<script>
+/* ============ 新建策略 ============ */
+var NEWP={name:'我的策略',pool:['518880','159509','588000','501225','513100','513310','159915','162719','159985','513030','513290','513520'],
+  momType:'wslope',m1:20,m2:26,m1lo:0,m1hi:3,m2lo:0,m2hi:10,minHold:2,init:5000,comm:0.00015,slip:0.001,start:'20200102'};
+var LASTBT=null;
+var CODE_NAMES={};
+(function(){
+  for(var k in BUILTIN){
+    var n=BUILTIN[k].names||{};
+    for(var c in n) CODE_NAMES[c]=n[c];
+  }
+  CODE_NAMES['511880']='银华日利ETF';
+})();
+function renderCustom(){
+  var all=[]; for(var c in DAILY) all.push(c);
+  all.sort();
+  var html='<div class="wrap">';
+  html+='<div class="card"><div class="ttl"><b>新建策略</b><div class="sp"></div><span class="mini">本地回测</span></div>'
+    +'<div class="frow"><label>策略名称</label><input id="fName" value="'+NEWP.name+'"></div>'
+    +'<div class="frow" style="display:block"><label style="display:block;margin-bottom:8px">标的池（'+NEWP.pool.length+' 只）</label>'
+    +'<div class="chips" id="poolChips">'
+    +all.filter(function(c){return c!=='511880'}).map(function(c){
+      return '<div class="chip'+(NEWP.pool.indexOf(c)>=0?' on':'')+'" onclick="togglePool(\''+c+'\')">'+(CODE_NAMES[c]||c)+'</div>';
+    }).join('')
+    +'</div></div>'
+    +'<div class="frow"><label>动量类型</label><select id="fType" onchange="NEWP.momType=this.value">'
+    +'<option value="wslope"'+(NEWP.momType==='wslope'?' selected':'')+'>加权斜率（年化×R²）</option>'
+    +'<option value="pct"'+(NEWP.momType==='pct'?' selected':'')+'>区间涨幅</option>'
+    +'</select></div>'
+    +'<div class="frow"><label>主窗口 M1</label><input id="fM1" type="number" value="'+NEWP.m1+'"></div>'
+    +'<div class="frow"><label>副窗口 M2</label><input id="fM2" type="number" value="'+NEWP.m2+'" placeholder="0=不用"></div>'
+    +'<div class="frow"><label>M1 阈值下限</label><input id="fM1lo" type="number" step="0.001" value="'+NEWP.m1lo+'"></div>'
+    +'<div class="frow"><label>M1 阈值上限</label><input id="fM1hi" type="number" step="0.1" value="'+NEWP.m1hi+'"></div>'
+    +'<div class="frow"><label>最短持有(日)</label><input id="fHold" type="number" value="'+NEWP.minHold+'"></div>'
+    +'<div class="frow"><label>初始资金</label><input id="fInit" type="number" value="'+NEWP.init+'"></div>'
+    +'<div class="frow"><label>佣金(单边)</label><input id="fComm" type="number" step="0.00001" value="'+NEWP.comm+'"></div>'
+    +'<div class="frow"><label>滑点</label><input id="fSlip" type="number" step="0.0001" value="'+NEWP.slip+'"></div>'
+    +'<button class="btn" onclick="doBacktest()">开始回测</button>'
+    +'<div class="hint">回测基于内置日线（'+AXMASTER[0]+' ~ '+AXMASTER[AXMASTER.length-1]+'），成交按当日收盘价，含佣金与滑点。</div>'
+    +'</div>';
+  html+='<div class="card" id="btResult" style="display:none"></div>';
+  html+='<div class="foot"><button class="btn ghost" onclick="go(\'home\')" style="margin:0">返回工作台</button></div></div>';
+  document.getElementById('app').innerHTML=html;
+  document.getElementById('hd').innerHTML='<div class="bk" onclick="go(\'home\')">‹</div><h1>新建策略</h1><div class="sp"></div><span class="badge" id="hdSub">自定义</span>';
+  document.getElementById('hdSub').textContent='自定义';
+}
+function togglePool(c){
+  var i=NEWP.pool.indexOf(c);
+  if(i>=0) NEWP.pool.splice(i,1); else NEWP.pool.push(c);
+  renderCustom();
+}
+function readForm(){
+  NEWP.name=(document.getElementById('fName').value||'我的策略').trim();
+  NEWP.momType=document.getElementById('fType').value;
+  NEWP.m1=+document.getElementById('fM1').value||20;
+  NEWP.m2=+document.getElementById('fM2').value||0;
+  NEWP.m1lo=+document.getElementById('fM1lo').value||0;
+  NEWP.m1hi=+document.getElementById('fM1hi').value||3;
+  NEWP.minHold=+document.getElementById('fHold').value||1;
+  NEWP.init=+document.getElementById('fInit').value||5000;
+  NEWP.comm=+document.getElementById('fComm').value||0.00015;
+  NEWP.slip=+document.getElementById('fSlip').value||0;
+}
+function doBacktest(){
+  readForm();
+  if(NEWP.pool.length<2){ toast('至少选 2 只标的'); return; }
+  toast('回测中…');
+  var mom={type:NEWP.momType,m1:NEWP.m1,m2:NEWP.m2,m1lo:NEWP.m1lo,m1hi:NEWP.m1hi,m2lo:0,m2hi:10};
+  if(NEWP.momType==='pct'){ mom.m1lo=NEWP.m1lo; mom.m1hi=NEWP.m1hi; }
+  var r=runBacktest({pool:NEWP.pool,names:CODE_NAMES,mom:mom,init:NEWP.init,start:NEWP.start,
+    comm:NEWP.comm,slip:NEWP.slip,minHold:NEWP.minHold});
+  LASTBT=r;
+  var m=r.metrics;
+  var buys=r.trades.filter(function(t){return t.a==='B';}).length;
+  var box=document.getElementById('btResult');
+  box.style.display='block';
+  box.innerHTML='<div class="ttl"><b>回测结果</b><div class="sp"></div><span class="badge blue">本地</span></div>'
+    +'<div class="grid4">'
+    +'<div class="kv"><div class="k">总收益</div><div class="v '+cls(m.total)+'">'+pct(m.total,1)+'</div></div>'
+    +'<div class="kv"><div class="k">年化</div><div class="v '+cls(m.annual)+'">'+pct(m.annual,2)+'</div></div>'
+    +'<div class="kv"><div class="k">最大回撤</div><div class="v dn">'+fmt(m.mdd,2)+'%</div></div>'
+    +'<div class="kv"><div class="k">换仓次数</div><div class="v">'+buys+'</div></div>'
+    +'</div>'
+    +'<div class="chartbox" style="height:120px;margin-top:10px"><svg viewBox="0 0 1000 120" preserveAspectRatio="none">'
+    +'<polyline points="'+sparkPath(r.nav,1000,120)+'" fill="none" stroke="'+(m.total>=0?'#ff4d4f':'#00c853')+'" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>'
+    +'<button class="btn" onclick="saveCustom()">保存到工作台</button>';
+  box.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function saveCustom(){
+  if(!LASTBT){ toast('请先回测'); return; }
+  var mom={type:NEWP.momType,m1:NEWP.m1,m2:NEWP.m2,m1lo:NEWP.m1lo,m1hi:NEWP.m1hi,m2lo:0,m2hi:10};
+  var s={
+    id:'c'+(Date.now()%1000000),
+    name:NEWP.name,
+    sub:(NEWP.momType==='wslope'?'加权斜率':'区间涨幅')+' '+NEWP.m1+(NEWP.m2?'/'+NEWP.m2:'')+'日 · 阈值'+NEWP.m1lo+'~'+NEWP.m1hi+' · TOP1',
+    pool:NEWP.pool.slice(),
+    names:CODE_NAMES,
+    init:NEWP.init,comm:NEWP.comm,slip:NEWP.slip,minHold:NEWP.minHold,reserve:0.02,lot:100,
+    mom:mom,start:NEWP.start,
+    metrics:LASTBT.metrics,
+    official:false,
+    note:'本地回测口径（含滑点'+(NEWP.slip*100).toFixed(2)+'%+佣金'+(NEWP.comm*10000).toFixed(1)+'万）'
+  };
+  // 存 nav 以加快加载
+  s.nav=LASTBT.nav; s.pts=LASTBT.pts;
+  CUSTOM.push(s);
+  try{ localStorage.setItem('wb_custom',JSON.stringify(CUSTOM.map(function(x){return {id:x.id,name:x.name,sub:x.sub,pool:x.pool,init:x.init,comm:x.comm,slip:x.slip,minHold:x.minHold,mom:x.mom,start:x.start,metrics:x.metrics,official:false,note:x.note,nav:x.nav,pts:x.pts};}))); }catch(e){}
+  toast('已保存');
+  setTimeout(function(){ go('detail',s.id); },400);
+}
+
+/* ============ 启动 ============ */
+(function init(){
+  render();
+})();
+</script>
+</body>
+</html>

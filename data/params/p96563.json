@@ -1,0 +1,70 @@
+{
+ "strategy_setting": {
+  "top_n": 1,
+  "etf_pool": [
+   "159915",
+   "513030",
+   "159985",
+   "518880",
+   "513520",
+   "159941"
+  ],
+  "slippage": 0.0001,
+  "exec_time": null,
+  "commission": 5e-05,
+  "trade_mode": "intraday",
+  "execute_time": "14:50:00",
+  "fallback_etf": "0",
+  "fund_account": null,
+  "exclude_today": false,
+  "min_hold_days": 1,
+  "trading_timing": "close_price",
+  "days_count_type": "trading_days",
+  "initial_capital": 100000,
+  "momentum_period": 25,
+  "sell_conditions": null,
+  "stop_loss_enabled": true,
+  "stop_loss_methods": [
+   "drawdown"
+  ],
+  "immediate_position": false,
+  "market_timing_code": null,
+  "momentum_threshold": 0,
+  "take_profit_method": "profit_based",
+  "stop_loss_threshold": 0.08,
+  "take_profit_enabled": false,
+  "capital_reserve_ratio": 0.02,
+  "default_min_hold_days": 1,
+  "reserve_cash_hold_max": false,
+  "stop_loss_freeze_days": 5,
+  "take_profit_threshold": 0.12,
+  "fixed_rebalance_period": false,
+  "momentum_config_groups": [],
+  "condition_filter_config": [
+   {
+    "type": "ma_golden_cross",
+    "fast_period": 10,
+    "slow_period": 20
+   },
+   {
+    "type": "premium_limit",
+    "max_premium": 20
+   }
+  ],
+  "drawdown_stop_threshold": 0.05,
+  "momentum_upper_threshold": 3,
+  "extreme_filter_conditions": [],
+  "momentum_calculation_type": "weighted_slope_close",
+  "recent_days_profit_period": 5,
+  "take_profit_cooldown_days": 2,
+  "id": 96563,
+  "strategy_id": 1,
+  "start_date": "2020-01-01",
+  "end_date": "2026-11-19",
+  "momentum_sort": "desc",
+  "is_from_strategy_list": true,
+  "currentStep": 2,
+  "status": "stopped"
+ },
+ "init_capital": 100000
+}

@@ -1,0 +1,296 @@
+<script>
+/* ============ 基础工具 ============ */
+var AXMASTER = CL.ax;                       // ["20190215",...]
+var DAILY = CL.d;                           // {code:[price*1000...]}
+function pad(n){return n<10?'0'+n:''+n}
+function dstr(d){return d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6,8)}
+function und(d){return d.replace(/-/g,'')}
+function fmt(v,dg){ if(v===null||v===undefined||isNaN(v)) return '—'; var s=v.toFixed(dg===undefined?2:dg); return s }
+function pct(v,dg){ if(v===null||v===undefined||isNaN(v)) return '—'; return (v>=0?'+':'')+v.toFixed(dg===undefined?2:dg)+'%'}
+function cls(v){ if(v===null||v===undefined||isNaN(v)||v===0) return 'gray'; return v>0?'up':'dn' }
+function toast(m){ var t=document.getElementById('toast'); t.textContent=m; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(function(){t.style.display='none'},2200); }
+
+/* 行情：某代码在 <= 指定日期的收盘序列 */
+var _cacheCl={};
+function clUpTo(code, d){
+  var key=code+'|'+d;
+  if(_cacheCl[key]) return _cacheCl[key];
+  var arr=DAILY[code]; if(!arr) return null;
+  // 二分找最后一个 <= d 的下标
+  var lo=0,hi=AXMASTER.length-1,pos=-1;
+  while(lo<=hi){var mid=(lo+hi)>>1; if(AXMASTER[mid]<=d){pos=mid;lo=mid+1;}else{hi=mid-1;}}
+  if(pos<0) return null;
+  var out=[];
+  for(var i=0;i<=pos;i++){ var v=arr[i]; if(v>0) out.push(v/1000); }
+  _cacheCl[key]=out;
+  return out;
+}
+function pxAt(code,d){
+  var arr=DAILY[code]; if(!arr) return null;
+  var lo=0,hi=AXMASTER.length-1,pos=-1;
+  while(lo<=hi){var mid=(lo+hi)>>1; if(AXMASTER[mid]<=d){pos=mid;lo=mid+1;}else{hi=mid-1;}}
+  if(pos<0) return null;
+  for(var i=pos;i>=0;i--){ if(arr[i]>0) return arr[i]/1000; }
+  return null;
+}
+/* 换手日索引 */
+function axIndexOf(d){ var i=AXMASTER.indexOf(d); return i; }
+function tradeDaysBetween(d1,d2){
+  var i1=axIndexOf(d1), i2=axIndexOf(d2);
+  if(i1<0||i2<0) return 0;
+  var n=0; for(var i=i1+1;i<=i2;i++){ if(!isNaN(i)) n++; }
+  return n;
+}
+
+/* ============ 动量 ============ */
+function wslope(cl,n){
+  var L=cl.length; if(L<n) return null;
+  var p=cl.slice(L-n);
+  for(var i=0;i<n;i++) if(!(p[i]>0)) return null;
+  var y=new Array(n), w=new Array(n);
+  for(i=0;i<n;i++){ y[i]=Math.log(p[i]); w[i]=1+i/(n-1); }
+  // slope：回归矩用 w²（等价 np.polyfit(w=linspace(1,2))）
+  var sw2=0,sxw=0,syw=0,sxxw=0,sxyw=0;
+  for(i=0;i<n;i++){ var w2=w[i]*w[i]; sw2+=w2; sxw+=w2*i; syw+=w2*y[i]; sxxw+=w2*i*i; sxyw+=w2*i*y[i]; }
+  var den=sw2*sxxw-sxw*sxw; if(!den) return null;
+  var slope=(sw2*sxyw-sxw*syw)/den, b=(syw-slope*sxw)/sw2;
+  var ann=Math.exp(slope*250)-1;
+  // R²：权重用 w 一次（加权均值）
+  var sw=0,sy2=0;
+  for(i=0;i<n;i++){ sw+=w[i]; sy2+=w[i]*y[i]; }
+  var ybar=sy2/sw, ssr=0, sst=0;
+  for(i=0;i<n;i++){ var pr=slope*i+b; ssr+=w[i]*Math.pow(y[i]-pr,2); sst+=w[i]*Math.pow(y[i]-ybar,2); }
+  var r2=sst>0?1-ssr/sst:0;
+  return ann*r2;
+}
+function pctN(cl,n){
+  if(!cl||cl.length<n+1) return null;
+  var a=cl[cl.length-1], b=cl[cl.length-1-n];
+  if(!(b>0)) return null;
+  return a/b-1;
+}
+/* 单只动量 */
+function momOf(strat, code, d){
+  var cl=clUpTo(code,d); if(!cl||cl.length<3) return null;
+  var m=strat.mom;
+  var m1=null,m2=null;
+  if(m.type==='wslope'){ m1=wslope(cl,m.m1); if(m.m2) m2=wslope(cl,m.m2); }
+  else { m1=pctN(cl,m.m1); if(m.m2) m2=pctN(cl,m.m2); }
+  return {m1:m1,m2:m2,cl:cl};
+}
+/* 某日全池排名 */
+var _rankCache={};
+function rankAt(strat,d){
+  var key=strat.id+'|'+d;
+  if(_rankCache[key]) return _rankCache[key];
+  var out=[], m=strat.mom;
+  for(var i=0;i<strat.pool.length;i++){
+    var c=strat.pool[i];
+    var r=momOf(strat,c,d); if(!r) continue;
+    var px=pxAt(c,d);
+    var prev=pxAt(c,prevAxDay(d));
+    var chg=(px&&prev&&prev>0)?(px/prev-1)*100:null;
+    if(r.m1===null) continue;
+    var ok=true;
+    if(m.m1lo!==undefined && !(r.m1>=m.m1lo && r.m1<=m.m1hi)) ok=false;
+    if(m.m2 && m.m2lo!==undefined && !(r.m2>=m.m2lo && r.m2<=m.m2hi)) ok=false;
+    if(strat.excludeLimit!==false && chg!==null && Math.abs(chg)>=9.8) ok=false;
+    out.push({code:c,name:(strat.names&&strat.names[c])||c,px:px,chg:chg,m1:r.m1,m2:r.m2,ok:ok});
+  }
+  out.sort(function(a,b){ return b.m1-a.m1; });
+  _rankCache[key]=out;
+  return out;
+}
+function prevAxDay(d){
+  var i=AXMASTER.indexOf(d); if(i<=0) return AXMASTER[0];
+  return AXMASTER[i-1];
+}
+/* 合格候选中的第一名 */
+function pickAt(strat,d){
+  var r=rankAt(strat,d);
+  for(var i=0;i<r.length;i++) if(r[i].ok) return r[i];
+  return null;
+}
+
+/* ============ 回测引擎（自定义策略用） ============ */
+function runBacktest(cfg){
+  var pool=cfg.pool, mom=cfg.mom;
+  var start=cfg.start||'20200102', end=cfg.end||AXMASTER[AXMASTER.length-1];
+  var dates=AXMASTER.filter(function(d){return d>=start&&d<=end;});
+  if(!dates.length) return {nav:[],holds:{},metrics:{}};
+  var cash=cfg.init, hold=null, nav=[], pts=[], trades=[], avail={};
+  var reserve=cfg.reserve===undefined?0.02:cfg.reserve, slip=cfg.slip===undefined?0.001:cfg.slip;
+  var comm=cfg.comm===undefined?0.00015:cfg.comm, lot=cfg.lot||100;
+  var dayIdx={}; dates.forEach(function(d,i){dayIdx[d]=i;});
+  function daysHeld(a,b){ return a?Math.max((dayIdx[b]||0)-(dayIdx[a]||0),0):0; }
+  for(var t=0;t<dates.length;t++){
+    var d=dates[t];
+    var _btId='bt'+pool.join('-')+mom.type+mom.m1+'-'+mom.m2+'-'+mom.m1lo+'-'+mom.m1hi;
+    var target=pickAt({id:_btId,pool:pool,names:cfg.names,mom:mom,excludeLimit:true},d);
+    var tgt=target?target.code:null;
+    var cur=hold?hold.code:null;
+    if(tgt!==cur){
+      var dh=hold?daysHeld(hold.date,d):0;
+      if(!hold || dh>=cfg.minHold){
+        if(hold){
+          var sp=pxAt(cur,d);
+          if(sp){ cash+=hold.sh*sp*(1-slip)*(1-comm); trades.push({d:d,a:'S',c:cur,p:+(sp*(1-slip)).toFixed(3),sh:hold.sh}); hold=null; }
+          else tgt=null;
+        }
+        if(!hold && tgt){
+          var bp=pxAt(tgt,d);
+          if(bp){
+            var sh=Math.floor(cash*(1-reserve)/(bp*(1+slip)*(1+comm))/lot)*lot;
+            if(sh>=lot){ cash-=sh*bp*(1+slip)*(1+comm); hold={code:tgt,sh:sh,date:d}; trades.push({d:d,a:'B',c:tgt,p:+(bp*(1+slip)).toFixed(3),sh:sh}); }
+          }
+        }
+      }
+    }
+    var eq=cash+(hold?hold.sh*(pxAt(hold.code,d)||0):0);
+    nav.push([dstr(d),+eq.toFixed(2)]);
+    if(hold && (!pts.length || pts[pts.length-1][1]!==hold.code)) pts.push([dstr(d),hold.code]);
+  }
+  var m=metrics(nav,cfg.init,dates);
+  return {nav:nav,pts:pts,trades:trades,metrics:m};
+}
+function metrics(nav,init,dates){
+  if(!nav.length) return {};
+  var eq=nav.map(function(x){return x[1];});
+  var tot=eq[eq.length-1]/init-1;
+  var ann=Math.pow(eq[eq.length-1]/init,252/eq.length)-1;
+  var rets=[]; for(var i=1;i<eq.length;i++) rets.push(Math.log(eq[i]/eq[i-1]));
+  var mean=0; rets.forEach(function(v){mean+=v;}); mean/=rets.length||1;
+  var sd=0; rets.forEach(function(v){sd+=Math.pow(v-mean,2);}); sd=Math.sqrt(sd/(rets.length||1))*Math.sqrt(252);
+  var peak=0,mdd=0;
+  eq.forEach(function(v){ if(v>peak)peak=v; var dd=v/peak-1; if(dd<mdd)mdd=dd; });
+  var sharpe=sd>0?(ann-0.02)/sd:0;
+  return {total:+(tot*100).toFixed(2),annual:+(ann*100).toFixed(2),mdd:+(mdd*100).toFixed(2),vol:+(sd*100).toFixed(2),sharpe:+sharpe.toFixed(2)};
+}
+
+/* ============ 策略注册表 ============ */
+var BUILTIN = STR.s;
+var CUSTOM = [];
+try{ CUSTOM = JSON.parse(localStorage.getItem('wb_custom')||'[]'); }catch(e){ CUSTOM=[]; }
+function allStrategies(){
+  var list=[];
+  for(var k in BUILTIN) list.push(BUILTIN[k]);
+  CUSTOM.forEach(function(c){ list.push(c); });
+  return list;
+}
+function getStrat(id){
+  for(var k in BUILTIN){ if(BUILTIN[k].id===id) return BUILTIN[k]; }
+  for(var i=0;i<CUSTOM.length;i++) if(CUSTOM[i].id===id) return CUSTOM[i];
+  return null;
+}
+/* 策略运行结果（nav/pts/holdMap） */
+var _runCache={};
+function runOf(s){
+  if(_runCache[s.id]) return _runCache[s.id];
+  var r;
+  if(s.official && s.nav){
+    var pts0=s.pts;
+    if(!pts0 && s.holds && s.holds.length){
+      pts0=s.holds.map(function(h){ return [h.date, h.code]; });
+    }
+    r={nav:s.nav,pts:pts0||[],trades:s.trades||[]};
+  }else{
+    r=runBacktest({pool:s.pool,names:s.names,mom:s.mom,init:s.init,start:s.start,end:s.end,
+      comm:s.comm,slip:s.slip,minHold:s.minHold,reserve:s.reserve,lot:s.lot});
+    if(!s.metrics) s.metrics=r.metrics;
+  }
+  // holdMap
+  var hm={}, cur=null;
+  var pts=r.pts;
+  if(pts&&pts.length&&typeof pts[0][0]==='number'){
+    // 索引型：按 nav 索引
+    var pi=0;
+    for(var i=0;i<r.nav.length;i++){
+      while(pi<pts.length && pts[pi][0]===i){ cur=pts[pi][1]; pi++; }
+      hm[und(r.nav[i][0])]=cur;
+    }
+  }else if(pts&&pts.length){
+    var pj=0;
+    // 日期型：跑遍所有 nav 日期，按日期推进
+    var sorted=pts.slice().sort(function(a,b){return a[0]<b[0]?-1:1;});
+    for(var j=0;j<r.nav.length;j++){
+      var dj=und(r.nav[j][0]);
+      while(pj<sorted.length && und(sorted[pj][0])<=dj){ cur=sorted[pj][1]; pj++; }
+      hm[dj]=cur;
+    }
+  }
+  r.holdMap=hm;
+  _runCache[s.id]=r;
+  return r;
+}
+
+/* ============ 视图路由 ============ */
+var VIEW={page:'home',sid:null,range:'all',calMode:'d',calY:2026,calM:10,focus:null,selCell:null};
+function go(page,sid){ VIEW.page=page; VIEW.sid=sid||null; if(page==='detail'){ resetDetail(); } render(); window.scrollTo(0,0); }
+function resetDetail(){
+  VIEW.range='all'; VIEW.calMode='d'; VIEW.selCell=null;
+  var s=getStrat(VIEW.sid); if(s&&s.nav&&s.nav.length){
+    var last=und(s.nav[s.nav.length-1][0]);
+    VIEW.calY=+last.slice(0,4); VIEW.calM=+last.slice(4,6);
+  }
+}
+function render(){
+  document.getElementById('hdSub').textContent = VIEW.page==='detail' ? (getStrat(VIEW.sid)||{}).id||'策略' : '本地离线 · 真实数据';
+  if(VIEW.page==='home') renderHome();
+  else if(VIEW.page==='detail') renderDetail();
+  else if(VIEW.page==='custom') renderCustom();
+  bind();
+}
+
+/* ============ 首页 ============ */
+function sparkPath(nav,w,h){
+  if(!nav.length) return '';
+  var vs=nav.map(function(x){return x[1];});
+  var mn=Math.min.apply(null,vs), mx=Math.max.apply(null,vs), rg=(mx-mn)||1;
+  var pts=vs.map(function(v,i){ return [(i/(vs.length-1))*w, h-((v-mn)/rg)*(h-6)-3]; });
+  // 抽稀
+  var step=Math.max(1,Math.floor(pts.length/60));
+  var d=[]; for(var i=0;i<pts.length;i+=step) d.push(pts[i][0].toFixed(1)+','+pts[i][1].toFixed(1));
+  d.push(pts[pts.length-1][0].toFixed(1)+','+pts[pts.length-1][1].toFixed(1));
+  return d.join(' ');
+}
+function renderHome(){
+  var list=allStrategies();
+  var html='<div class="wrap">';
+  html+='<div class="card" style="background:linear-gradient(135deg,#151b26,#10151d)">'
+     +'<div class="ttl"><b>策略工作台</b><div class="sp"></div><span class="mini">'+list.length+' 个策略</span></div>'
+     +'<div class="mini" style="line-height:1.7">内置平台策略 + 自建策略统一管理。收益曲线与平台口径对齐，行情内置，断网可用。</div>'
+     +'</div>';
+  html+='<div class="slist">';
+  list.forEach(function(s){
+    var r=runOf(s);
+    var m=s.metrics||r.metrics||{};
+    var nav=r.nav||[];
+    var lastV=nav.length?nav[nav.length-1][1]:0;
+    var tot=lastV&&s.init?((lastV/s.init-1)*100):(m.total!=null?m.total:0);
+    var ann=m.annual;
+    var mdd=m.mdd!==undefined?m.mdd:m.maxdrawdown;
+    var wk='';
+    if(nav.length){ wk='<svg class="spark" viewBox="0 0 100 58" preserveAspectRatio="none"><polyline points="'
+      + sparkPath(nav,100,58).split(' ').map(function(p){var xy=p.split(',');return xy[0]+','+xy[1];}).join(' ')
+      +'" fill="none" stroke="'+(tot>=0?'#ff4d4f':'#00c853')+'" stroke-width="1.6"/></svg>'; }
+    html+='<div class="sitem" onclick="go(\'detail\',\''+s.id+'\')">'
+      +'<div class="nm"><b>'+s.name+'</b>'
+      +(s.engine?'<span class="badge cyan">本地复现</span>':(s.official?'<span class="badge gold">官方真值</span>':'<span class="badge blue">本地回测</span>'))
+      +'<span class="badge">'+s.id+'</span></div>'
+      +'<div class="sb">'+(s.sub||'')+'</div>'
+      +'<div class="row">'
+      +'<div><div class="l">总收益</div><div class="v '+cls(tot)+'">'+pct(tot,0)+'</div></div>'
+      +'<div><div class="l">年化</div><div class="v '+cls(ann)+'">'+(ann!=null?pct(ann,1):'—')+'</div></div>'
+      +'<div><div class="l">最大回撤</div><div class="v dn">'+(mdd!=null?fmt(mdd,1)+'%':'—')+'</div></div>'
+      +'<div><div class="l">净值</div><div class="v" style="font-size:13px">'+(lastV?fmt(lastV/10000,2)+'万':'—')+'</div></div>'
+      +'</div>'+wk+'</div>';
+  });
+  html+='<div class="addcard" onclick="go(\'custom\')"><b>+ 新建策略</b><span style="font-size:11.5px">自定义标的池、动量窗口与阈值，本地立即回测</span></div>';
+  html+='</div>';
+  html+='<div class="foot">数据源：腾讯前复权日K · 内置矩阵 '+AXMASTER[0]+' ~ '+AXMASTER[AXMASTER.length-1]+' · 生成于 '+STR.gen+'</div>';
+  html+='</div>';
+  document.getElementById('app').innerHTML=html;
+  document.getElementById('hd').innerHTML='<h1>量化工作台</h1><div class="sp"></div><span class="badge gold" id="hdSub">本地离线</span>';
+  document.getElementById('hdSub').textContent='本地离线 · 真实数据';
+}
+</script>
