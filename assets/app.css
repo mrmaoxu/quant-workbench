@@ -354,3 +354,26 @@ html,body{max-width:100vw;overflow-x:hidden}
 .alert .ah{flex-wrap:nowrap}
 .alert .cd{white-space:nowrap;font-size:10.5px;flex-shrink:0}
 .alert .ah .tag{flex-shrink:0}
+/* ===== 浅色主题 ===== */
+html[data-theme="light"]{
+  --bg:#f4f6fb;--bg2:#eaeeF6;--card:#ffffff;--card2:#f6f8fc;
+  --line:#e2e8f2;--txt:#101a2b;--sub:#5a6a80;--dim:#8b99ad;
+  --up:#e0392f;--dn:#0e9c6d;--acc:#2f6ef0;--acc2:#4a86ff;
+  --gold:#b07a06;--warn:#c9741b;color-scheme:light
+}
+html[data-theme="light"] body{background:var(--bg)}
+html[data-theme="light"] .hero{background:linear-gradient(150deg,#ffffff,#f1f5ff);border-color:#dbe4f4;box-shadow:0 6px 18px rgba(30,58,110,.07)}
+html[data-theme="light"] .hero::after{background:radial-gradient(circle,rgba(77,139,255,.20),transparent 70%)}
+html[data-theme="light"] .tabs{background:rgba(255,255,255,.94);border-top-color:var(--line);box-shadow:0 -2px 12px rgba(16,26,43,.07)}
+html[data-theme="light"] .card,html[data-theme="light"] .sc,html[data-theme="light"] .mi{box-shadow:0 1px 3px rgba(16,26,43,.05)}
+html[data-theme="light"] .sc{background:var(--card)}
+html[data-theme="light"] .sc .hint{background:linear-gradient(180deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.80) 45%,rgba(255,255,255,.95) 100%)}
+html[data-theme="light"] .spark{opacity:.34}
+html[data-theme="light"] .alert{background:linear-gradient(135deg,rgba(224,57,47,.08),rgba(201,116,27,.05));border-color:rgba(224,57,47,.26)}
+html[data-theme="light"] .alert.calm{background:linear-gradient(135deg,rgba(14,156,109,.07),rgba(47,110,240,.05));border-color:rgba(14,156,109,.24)}
+html[data-theme="light"] .mk{background:linear-gradient(135deg,#2f6ef0,#6a5cff)}
+html[data-theme="light"] .toast{background:rgba(16,26,43,.90);color:#fff}
+html[data-theme="light"] .tw table th{background:var(--card2)}
+html[data-theme="light"] .tk-gold{background:rgba(176,122,6,.10)!important;color:#8a5f04!important;border-color:rgba(176,122,6,.28)!important}
+html[data-theme="light"] .tk-cyan{background:rgba(10,150,120,.09)!important;color:#0b7a61!important;border-color:rgba(10,150,120,.24)!important}
+html[data-theme="light"] .iconbtn{background:var(--card);border-color:var(--line)}

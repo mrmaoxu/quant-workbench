@@ -1054,7 +1054,7 @@
     var p = pend[id] || { actions: [], ranks: [] };
     var pos = QE.posList(a);
     var html = '<div class="dhead"><button class="btn" onclick="UI.go(\'home\')">‹ 总览</button>' +
-      '<b>' + esc(s.name) + '</b>' +
+      '<b>' + esc(s.short || s.name) + '</b>' +
       (s.snapshot ? '<span class="st tk-' + (s.tagc || 'blue') + '">' + esc(s.tag) + '</span>' : '') +
       '<span class="rt">' + esc(s.time) + (s.exec === 'snapshot' ? ' · 快照' : '') + '</span></div>';
 
@@ -1232,7 +1232,7 @@
     /* 规则 */
     html += '<div class="card"><div class="chd"><span class="bar"></span><h2>策略规则</h2></div><div class="rules">' + rulesHTML(id) + '</div></div>';
 
-    var host0 = $('view-' + id) || $('view-detail');
+    var host0 = $('view-detail');
     if (host0) host0.innerHTML = html;
   }
 
@@ -1482,7 +1482,7 @@
     Object.keys(QE.STRATS).forEach(function (id) {
       var s = QE.STRATS[id], st = APP.settings[id];
       if (s.snapshot) {
-        html += '<div class="card tight"><div class="chd"><span class="bar"></span><h2>' + esc(s.name) + ' · 只读快照</h2>' +
+        html += '<div class="card tight"><div class="chd"><span class="bar"></span><h2>' + esc(s.short || s.name) + ' · 只读快照</h2>' +
           '<span class="rt">' + esc(s.tag) + '</span></div><div class="vnote">净值、日/月/年收益、排名与指标为' +
           (s.official ? '平台官方接口数据' : '本地引擎按平台参数复算') + '，不可修改本金与起始日。</div></div>';
         return;
@@ -1539,9 +1539,32 @@
     var views = document.querySelectorAll('.view');
     for (var i = 0; i < views.length; i++) views[i].className = 'view' + (views[i].id === 'view-' + target ? ' on' : '');
     var tabs = document.querySelectorAll('#tabs a');
-    var tabV = isStrat ? 'home' : v;
+    var tabV = isStrat ? (document.querySelector('#tabs a[data-v="' + v + '"]') ? v : 'home') : v;
     for (i = 0; i < tabs.length; i++) tabs[i].className = tabs[i].getAttribute('data-v') === tabV ? 'on' : '';
     window.scrollTo(0, 0);
+  }
+
+  /* ===== 双主题（深色 / 浅色） ===== */
+  function themeNow() { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
+  function paintThemeIcon() {
+    var b = $('btnTheme');
+    if (!b) return;
+    b.innerHTML = themeNow() === 'light'
+      ? '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+      : '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+  }
+  function themeInit() {
+    var t = 'dark';
+    try { t = localStorage.getItem('qw_theme') || 'dark'; } catch (e) { }
+    document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+    paintThemeIcon();
+  }
+  function toggleTheme() {
+    var t = themeNow() === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('qw_theme', t); } catch (e) { }
+    paintThemeIcon();
+    toast(t === 'light' ? '已切换浅色模式' : '已切换深色模式');
   }
 
   /* ---------- 通知 ---------- */
@@ -1608,6 +1631,7 @@
       renderAll();
       booted = true;
       if (window.__QW_H && (QE.STRATS[window.__QW_H] || $('view-' + window.__QW_H))) { go(window.__QW_H); window.__QW_H = ''; }
+      else if (window.__QW_H) { go(window.__QW_H); window.__QW_H = ''; }
       var ms = DATA.marketState();
       setStatus(ms.text + ' · ' + (DATA.lastFetch ? new Date(DATA.lastFetch).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''), ms.open);
       btn.className = 'iconbtn';
@@ -1631,6 +1655,7 @@
   /* ---------- 对外交互 ---------- */
   var UI = {
     go: go,
+    theme: toggleTheme,
     ack: function (id) {
       var t = todayStr();
       APP.ack[t] = APP.ack[t] || {};
@@ -1782,6 +1807,8 @@
       tabs[i].addEventListener('click', function () { go(this.getAttribute('data-v')); });
     }
     $('btnRefresh').addEventListener('click', function () { boot(true); });
+    themeInit();
+    if ($('btnTheme')) $('btnTheme').addEventListener('click', toggleTheme);
     var h = (location.hash || '').replace('#', '');
     if (h) window.__QW_H = h;
     boot();

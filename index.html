@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
@@ -12,7 +12,7 @@
 <title>量化工作台</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/app.css?v=14">
+<link rel="stylesheet" href="assets/app.css?v=15">
 </head>
 <body>
 <div class="wrap">
@@ -27,6 +27,7 @@
     </div>
     <div class="sp"></div>
     <span class="pill" id="mkPill"><i class="dot off"></i><span>加载中</span></span>
+    <div class="iconbtn" id="btnTheme" title="切换明暗主题"></div>
     <div class="iconbtn" id="btnRefresh" title="刷新行情">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
     </div>
@@ -41,9 +42,6 @@
   </div>
 
   <div class="view on" id="view-home"></div>
-  <div class="view" id="view-momentum"></div>
-  <div class="view" id="view-earth"></div>
-  <div class="view" id="view-lowfreq"></div>
   <div class="view" id="view-detail"></div>
   <div class="view" id="view-settings"></div>
 
@@ -54,11 +52,11 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="assets/engine.js?v=14"></script>
-<script src="assets/snapdata.js?v=14"></script>
-<script src="assets/history.js?v=14"></script>
-<script src="assets/data.js?v=14"></script>
-<script src="assets/ui.js?v=14"></script>
+<script src="assets/engine.js?v=15"></script>
+<script src="assets/snapdata.js?v=15"></script>
+<script src="assets/history.js?v=15"></script>
+<script src="assets/data.js?v=15"></script>
+<script src="assets/ui.js?v=15"></script>
 <script>
 /* 注册离线壳（network-first）：保证每次打开都拿到最新前端；file:// 下自动跳过 */
 if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
