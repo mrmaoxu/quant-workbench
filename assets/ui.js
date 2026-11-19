@@ -1391,6 +1391,26 @@
     var nm = function (arr) {
       return arr.length ? arr.map(function (x) { return esc(cname(x)) }).join(' · ') : '空仓';
     };
+    /* 官方已同步到该结算日 → 以官方持仓为准；收盘价复算仅作参考 */
+    var lastD = String((a && a.lastDate) || '').replace(/-/g, '');
+    if (d.sync && d.nav && d.nav.length && String(d.nav[d.nav.length - 1][0]) === lastD) {
+      var oh = (d.holds && d.holds.length) ? d.holds[0] : null;
+      var tgtName = tgt.length ? nm(tgt) : '空仓';
+      var sameAsOff = (oh && tgt.length === 1 && String(oh.code) === String(tgt[0])) || (!oh && !tgt.length);
+      var head = oh
+        ? ('平台官方已执行：<b>' + esc(cname(String(oh.code))) + ' ' + oh.qty + ' 股 @' + oh.px +
+           '</b>（' + dsh(String(oh.date)) + ' ' + (cfg.exec || '14:50') + ' 换入）')
+        : ('平台官方已执行：<b>结算空仓</b>（' + dsh(lastD) + '）');
+      var tail = sameAsOff
+        ? '<div style="opacity:.72;margin-top:3px">按收盘价复算的目标同为 ' + tgtName + ' → <b>一致</b></div>'
+        : ('<div style="opacity:.72;margin-top:3px">按收盘价复算的目标为 ' + tgtName +
+           '，与官方不同：平台按<b>执行时点价</b>排名，收盘价在临界名次会翻转 → <b>以官方为准</b></div>');
+      return '<div style="margin-top:8px;padding:8px 10px;border-left:3px solid var(--acc,#5b8cff);' +
+        'background:rgba(255,255,255,.035);border-radius:0 8px 8px 0;font-size:11.5px;line-height:1.7">' +
+        '<span class="badge on" style="margin-right:6px">官方口径</span>' + head + tail +
+        '<div style="opacity:.62;margin-top:3px">同步时间 ' + esc(d.sync) +
+        ' · 净值/绩效/持仓取自平台接口，未经本地重算</div></div>';
+    }
     var same = (cur.length === tgt.length) && cur.every(function (x) { return tgt.indexOf(x) >= 0; });
     var cls_, txt;
     if (!tgt.length) {
