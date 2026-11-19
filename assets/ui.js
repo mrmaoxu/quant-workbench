@@ -1412,6 +1412,13 @@
     }
     var rule = (mom.type === 'pct') ? ((mom.m1 || 2) + '日涨幅')
       : ((id === 'earth' ? 'M20/M26 双动量' : ((mom.m1 || 25) + '日加权斜率')));
+    var whyList = [];
+    ranks.forEach(function (r) {
+      if (!r.pass && r.filters && r.filters.length && whyList.length < 3) {
+        whyList.push(esc(cname(r.code)) + '：' + esc(r.filters[0]));
+      }
+    });
+    if (whyList.length) txt += '<div style="opacity:.72;margin-top:3px">主要剔除原因：' + whyList.join('；') + '</div>';
     return '<div style="margin-top:8px;padding:8px 10px;border-left:3px solid ' +
       (cls_ === 'on' ? 'var(--up,#f0483e)' : 'var(--acc,#5b8cff)') +
       ';background:rgba(255,255,255,.035);border-radius:0 8px 8px 0;font-size:11.5px;line-height:1.7">' +
@@ -1420,6 +1427,32 @@
       ' · 阈值 ' + (mom.m1lo != null ? mom.m1lo : 0) + '~' + (mom.m1hi != null ? mom.m1hi : 0) +
       ' · TOP' + topN + (cfg.minHold ? ' · 最短持有 ' + cfg.minHold + ' 日' : '') +
       (id === 'momentum' ? ' · GS/乖离剔除后递补 · 股数以目标组合为准' : '') + '</div></div>';
+  }
+
+  /* 平台实测口径：回归矩用 w²、R² 用 w（与标准 polyfit 版相差可达 39%） */
+  function wslopePlat(ser, n) {
+    if (!ser || ser.length < n || n < 2) return null;
+    var p = ser.slice(-n), y = [], w = [], i;
+    for (i = 0; i < n; i++) { if (!(p[i] > 0)) return null; y.push(Math.log(p[i])); w.push(1 + i / (n - 1)); }
+    var sw = 0, sy = 0, sw2 = 0, sxw = 0, syw = 0, sxxw = 0, sxyw = 0;
+    for (i = 0; i < n; i++) {
+      var w2 = w[i] * w[i];
+      sw += w[i]; sy += w[i] * y[i];
+      sw2 += w2; sxw += w2 * i; syw += w2 * y[i];
+      sxxw += w2 * i * i; sxyw += w2 * i * y[i];
+    }
+    var den = sw2 * sxxw - sxw * sxw;
+    if (!(den > 0)) return null;
+    var slope = (sw2 * sxyw - sxw * syw) / den, b = (syw - slope * sxw) / sw2;
+    var annual = Math.exp(slope * 250) - 1;
+    if (!isFinite(annual)) return null;
+    var ybar = sy / sw, sr = 0, st = 0;
+    for (i = 0; i < n; i++) {
+      sr += w[i] * Math.pow(y[i] - (slope * i + b), 2);
+      st += w[i] * Math.pow(y[i] - ybar, 2);
+    }
+    var r2 = st > 0 ? 1 - sr / st : 0;
+    return { score: annual * r2, annual: annual, r2: r2 };
   }
 
   function maAvg(ser, n) {
@@ -1463,7 +1496,7 @@
           r.win = kk;
           r.score = ser.length > kk ? px / ser[ser.length - 1 - kk] - 1 : null;
         } else {
-          var win = mom.m1 || 25, o = QE.wslopeFull(ser, win);
+          var win = mom.m1 || 25, o = wslopePlat(ser, win);
           r.win = win;
           r.score = o ? o.score : null;
           r.annual = o ? o.annual : null;
@@ -1471,6 +1504,26 @@
         var lo = (mom.m1lo != null ? mom.m1lo : -1e9);
         var hi = (mom.m1hi != null ? mom.m1hi : 1e9);
         r.pass = (r.score != null && r.score >= lo && r.score <= hi);
+        r.filters = [];
+        var cfgS = d.cfg || {};
+        if ((cfgS.filters || []).length) {
+          cfgS.filters.forEach(function (f) {
+            if (f.type === 'ma_golden_cross') {
+              var fN = f.fast_period || 10, sN = f.slow_period || 20;
+              var mf = maAvg(ser, fN), ms = maAvg(ser, sN);
+              if (mf == null || ms == null) { r.pass = false; r.filters.push('均线数据不足'); }
+              else if (!(mf > ms)) { r.pass = false; r.filters.push('MA' + fN + '未上穿MA' + sN); }
+            } else if (f.type === 'close_above_ma') {
+              var nN = f.period || 10, mn = maAvg(ser, nN);
+              if (mn == null || !(px > mn)) { r.pass = false; r.filters.push('未站上MA' + nN); }
+            } else if (f.type === 'premium_limit') {
+              r.pass = false; r.filters.push('溢价未知(上限' + (f.max_premium || 20) + '%)');
+            }
+          });
+        }
+        if ((cfgS.limit || []).length && Math.abs(chg) >= 0.098) {
+          r.pass = false; r.filters.push('涨跌停剔除');
+        }
       } else if (id === 'momentum') {
         var r15 = ser.length > 16 ? px / ser[ser.length - 17] - 1 : null;
         var r20 = ser.length > 21 ? px / ser[ser.length - 22] - 1 : null;
@@ -1482,7 +1535,7 @@
         r.gs = gsCalc(ref);
         r.pass = (r.mom != null && r.mom > 0);
       } else if (id === 'earth') {
-        var o1 = QE.wslopeFull(ser, 20), o2 = QE.wslopeFull(ser, 26);
+        var o1 = wslopePlat(ser, 20), o2 = wslopePlat(ser, 26);
         r.score = o1 ? o1.score : null;
         r.score2 = o2 ? o2.score : null;
         r.pass = (r.score != null && r.score > 0 && r.score <= 3 && r.score2 != null && r.score2 > 0 && r.score2 <= 10);
@@ -1536,7 +1589,8 @@
     ranks.forEach(function (r, i) {
       var badge = r.held ? '<span class="badge on">持仓</span>'
         : (r.pass ? (i === 0 ? '<span class="badge top">TOP1</span>' : '<span class="badge cand">候选</span>')
-          : '<span class="badge off">' + (isPct ? '区间外' : '阈值外') + '</span>');
+          : '<span class="badge off">' + esc((r.filters && r.filters.length) ? r.filters[0]
+            : (r.score == null ? '数据不足' : (isPct ? '区间外' : '阈值外'))) + '</span>');
       var mv = (r.score == null) ? '--' : (isPct ? spct(r.score) : num(r.score, 3));
       html += '<tr' + (r.held ? ' class="hrow"' : '') + '><td>' + (i + 1) + '</td>' +
         '<td><span class="nm">' + esc(r.n) + '</span><i class="sub15">' + r.code + '</i></td>' +
