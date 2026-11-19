@@ -94,9 +94,9 @@
   var SNAP_META = {
     p13429: { short: '纯粹', group: '平台官方', tag: '官方真值', tagc: 'gold' },
     p96242: { short: 'ETF动量轮动', group: '平台官方', tag: '官方真值', tagc: 'gold' },
-    p96561: { short: '大类资产轮动', group: '防守策略', tag: '本地复现', tagc: 'cyan' },
-    p96563: { short: '七龙珠V2', group: '防守策略', tag: '本地复现', tagc: 'cyan' },
-    p96560: { short: '银行等股灾', group: '防守策略', tag: '本地复现', tagc: 'cyan' }
+    p96561: { short: '大类资产轮动', group: '防守策略', tag: '官方真值', tagc: 'gold' },
+    p96563: { short: '七龙珠V2', group: '防守策略', tag: '官方真值', tagc: 'gold' },
+    p96560: { short: '银行等股灾', group: '防守策略', tag: '官方真值', tagc: 'gold' }
   };
   var SNAP_ORDER = ['p13429', 'p96242', 'p96561', 'p96563', 'p96560'];
   var CODE_NAMES = {
@@ -172,7 +172,7 @@
     if (typeof SNAP === 'undefined' || !SNAP || !SNAP.s) return;
     SNAP_ORDER.forEach(function (id) {
       var d = SNAP.s[id];
-      if (!d || QE.STRATS[id]) return;
+      if (!d) return;
       var mt = SNAP_META[id] || { short: d.name, group: '其他', tag: '快照', tagc: 'blue' };
       var pool = (d.pool || []).map(function (c) { return { c: c, n: cname(c) }; });
       var cfg0 = d.cfg || {};
@@ -982,14 +982,19 @@
           : '';
         if (s.snapshot) {
           var lastV = navs.length ? navs[navs.length - 1] : 0;
+          var dPnl = navs.length > 1 ? lastV - navs[navs.length - 2] : 0;
+          var dPct = (navs.length > 1 && navs[navs.length - 2]) ? dPnl / navs[navs.length - 2] : 0;
+          var syTxt = (SNAP.s[r.id] && SNAP.s[r.id].sync) ? String(SNAP.s[r.id].sync) : '';
+          var syringe = a.lastDate ? ('官方 · ' + syTxt) : syTxt;
           html += '<div class="sc" onclick="UI.go(\'' + r.id + '\')">' +
             '<div class="sh"><span class="nm">' + esc(s.short || s.name) + '</span>' +
             '<span class="st tk-' + (s.tagc || 'blue') + '">' + esc(s.tag) + '</span></div>' +
             '<div class="v num">' + money(lastV) + '<small>元</small></div>' +
-            '<div class="r2"><span>累计 <b class="num ' + cls(m.total) + '">' + (m.total != null ? spct(m.total) : '--') + '</b></span>' +
-            '<span>年化 <b class="num ' + cls(m.annual) + '">' + (m.annual != null ? spct(m.annual, 1) : '--') + '</b></span>' +
-            '<span>回撤 <b class="num dn">' + (m.mdd != null ? pct(m.mdd, 1) : '--') + '</b></span></div>' +
+            '<div class="r2"><span>今日 <b class="num ' + cls(dPnl) + '">' + (dPnl >= 0 ? '+' : '') + money(dPnl) + ' <i class="pp ' + cls(dPct) + '">' + spct(dPct) + '</i></b></span>' +
+            '<span>累计 <b class="num ' + cls(m.total) + '">' + (m.total != null ? spct(m.total) : '--') + '</b></span>' +
+            '<span>年化 <b class="num ' + cls(m.annual) + '">' + (m.annual != null ? spct(m.annual, 1) : '--') + '</b></span></div>' +
             '<div class="hint">' + esc(s.sub || '') + (a.lastDate ? '<em>截至 ' + a.lastDate.slice(5) + '</em>' : '') + '</div>' +
+            (syringe ? '<div class="sy">' + esc(syringe) + '</div>' : '') +
             '<div class="spark">' + spark + '</div></div>';
           return;
         }
@@ -1842,6 +1847,68 @@
   }
 
   /* ---------- 视图切换 ---------- */
+  /* ===== 盘中实时估算：官方持仓 + 实时价，覆盖 14:30 调仓后的真实波动 ===== */
+  function isTradingNow() {
+    var d = new Date(), w = d.getDay();
+    if (w === 0 || w === 6) return false;
+    var m = d.getHours() * 60 + d.getMinutes();
+    return (m >= 570 && m <= 690) || (m >= 780 && m <= 900);
+  }
+  function secOf(c) { return ((c.charAt(0) === '5' || c.charAt(0) === '6') ? 'sh' : 'sz') + c; }
+  function liveQuotes(codes, cb) {
+    if (!codes.length) { cb(null); return; }
+    var s = document.createElement('script');
+    s.charset = 'gbk';
+    s.src = 'https://qt.gtimg.cn/q=' + codes.map(secOf).join(',') + '&_=' + Date.now();
+    s.onload = function () {
+      var px = {};
+      codes.forEach(function (c) {
+        var v = window['v_' + secOf(c)];
+        if (!v) return;
+        var a = String(v).split('~'), p = parseFloat(a[3]);
+        if (p > 0) px[c] = p;
+      });
+      s.parentNode && s.parentNode.removeChild(s);
+      cb(px);
+    };
+    s.onerror = function () { s.parentNode && s.parentNode.removeChild(s); cb(null); };
+    document.head.appendChild(s);
+  }
+  function intradaySync() {
+    if (!isTradingNow() || typeof SNAP === 'undefined' || !SNAP.s) return;
+    var codes = {}, any = false;
+    SNAP_ORDER.forEach(function (k) {
+      var d = SNAP.s[k];
+      if (!d || !d.holds) return;
+      d.holds.forEach(function (h) { codes[h.code] = 1; any = true; });
+    });
+    if (!any) return;
+    liveQuotes(Object.keys(codes), function (px) {
+      if (!px) return;
+      var today = new Date(), tk = '' + today.getFullYear() + ('0' + (today.getMonth() + 1)).slice(-2) + ('0' + today.getDate()).slice(-2);
+      SNAP_ORDER.forEach(function (k) {
+        var d = SNAP.s[k], a = APP.accounts[k];
+        if (!d || !d.nav || !d.nav.length || !d.holds || !d.holds.length || !a) return;
+        var mv = 0, miss = false;
+        d.holds.forEach(function (h) {
+          var p = px[h.code];
+          if (!(p > 0)) { miss = true; return; }
+          mv += h.qty * p;
+        });
+        if (miss || !(a.cash >= 0)) return;
+        var est = Math.round((a.cash + mv) * 100) / 100;
+        var last = d.nav[d.nav.length - 1];
+        if (String(last[0]) === tk) { last[1] = est; }
+        else { d.nav.push([tk, est]); }
+        var hh = today.getHours(), mm = today.getMinutes();
+        d.sync = '盘中估算 ' + ('0' + hh).slice(-2) + ':' + ('0' + mm).slice(-2);
+        d.intraday = true;
+      });
+      try { injectSnap(); } catch (e) {}
+      renderAll();
+    });
+  }
+
   /* 运行时同步平台官方真值（CORS 已放开）。失败静默回落本地快照 */
   function liveSync() {
     var ids = ['13429', '96242'], jobs = [], MP = {
@@ -1891,6 +1958,7 @@
       try { injectSnap(); } catch (e) {}
       renderAll();
       toast('已同步平台官方当日数据');
+      setTimeout(function () { try { intradaySync(); } catch (e) {} }, 400);
     });
   }
 
@@ -2183,6 +2251,7 @@
     if (h) window.__QW_H = h;
     boot();
     setTimeout(function () { try { liveSync(); } catch (e) {} }, 900);
+    setInterval(function () { try { intradaySync(); } catch (e) {} }, 30000);
   });
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     // 兜底：若 DOMContentLoaded 已过

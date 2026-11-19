@@ -386,3 +386,15 @@ html[data-theme="light"] .iconbtn{background:var(--card);border-color:var(--line
   table.rt4 td:nth-child(2){max-width:80px}
   table.rt4 td:nth-child(2) .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 }
+/* ==== 官方数据强调 + 详情页吸顶（patch19） ==== */
+.sc{background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.012)),var(--card);box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 6px 18px rgba(0,0,0,.18)}
+.sc:hover{border-color:#2b3b55}
+.sy{margin-top:7px;font-size:10px;color:#6b7a90;letter-spacing:.2px;font-style:normal}
+.dhead{position:sticky;top:0;z-index:15;background:rgba(8,11,17,.92);backdrop-filter:blur(12px);padding-bottom:8px;margin-bottom:2px}
+[data-theme="light"] .dhead{background:rgba(247,249,252,.94)}
+[data-theme="light"] .sc{background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(255,255,255,.6));box-shadow:0 4px 14px rgba(20,40,70,.06)}
+[data-theme="light"] .sy{color:#8a97a8}
+
+/* patch19c */
+.sc .hint,.sy,.sc .sh .nm{overflow-wrap:anywhere;word-break:break-word}
+.sc .sh .st{flex:0 0 auto}
