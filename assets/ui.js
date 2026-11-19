@@ -1063,6 +1063,8 @@
       html += snapStats(id, s, a, m);
       html += snapPos(id, s, a);
       html += perfCard(id, a);
+      html += rankCard(id, p, a);
+      html += snapTrades(id, a);
       html += '<div class="card"><div class="chd"><span class="bar"></span><h2>策略规则</h2><span class="rt">' + esc(s.tag) + '</span></div>' +
         '<div class="rules">' + rulesHTML(id) + '</div></div>';
       var dh = $('view-detail');
@@ -1351,10 +1353,181 @@
     return html;
   }
 
+  /* ---------- 全池排名兜底：无当日信号时按最近收盘日复算 ---------- */
+  function maAvg(ser, n) {
+    if (!ser || ser.length < n) return null;
+    var s = 0, i;
+    for (i = ser.length - n; i < ser.length; i++) s += ser[i];
+    return s / n;
+  }
+  function gsCalc(ref) {
+    if (!ref || ref.length < 26) return null;
+    var i = ref.length - 1, c = ref[i], m6 = 0, m12 = 0, m24 = 0, k;
+    for (k = 0; k < 6; k++) m6 += ref[i - k];
+    for (k = 0; k < 12; k++) m12 += ref[i - k];
+    for (k = 0; k < 24; k++) m24 += ref[i - k];
+    m6 /= 6; m12 /= 12; m24 /= 24;
+    if (!(m6 > 0) || !(m12 > 0) || !(m24 > 0)) return null;
+    var v2 = (c - m6) / m6 * 100, v3 = (c - m12) / m12 * 100, v4 = (c - m24) / m24 * 100;
+    return (v2 + 2 * v3 + 3 * v4) / 6;
+  }
+  function rankAt(id, s, a) {
+    if (!s || !idx) return [];
+    var d = (typeof SNAP !== 'undefined' && SNAP.s) ? (SNAP.s[id] || {}) : {};
+    var mom = d.mom || {};
+    var date = a.lastDate || (idx.calendar.length ? idx.calendar[idx.calendar.length - 1] : '');
+    var held = {}, c;
+    for (c in a.pos) if (a.pos[c] && a.pos[c].sh > 0) held[c] = 1;
+    var out = [];
+    (s.pool || []).forEach(function (it) {
+      var code = it.c || it[0], nm = it.n || it[1];
+      var ser = QE.seriesTo(idx, code, date) || [];
+      if (ser.length < 3) return;
+      var px = ser[ser.length - 1], prev = ser[ser.length - 2];
+      var chg = prev > 0 ? px / prev - 1 : 0;
+      var ref = ser.slice(0, ser.length - 1);
+      var ma20 = maAvg(ref, 20);
+      var r = { code: code, n: nm, price: px, chg: chg, held: !!held[code],
+                bias: ma20 ? (px / ma20 - 1) * 100 : null, premium: null, gs: null };
+      if (s.snapshot) {
+        if (mom.type === 'pct') {
+          var kk = mom.m1 || 2;
+          r.win = kk;
+          r.score = ser.length > kk ? px / ser[ser.length - 1 - kk] - 1 : null;
+        } else {
+          var win = mom.m1 || 25, o = QE.wslopeFull(ser, win);
+          r.win = win;
+          r.score = o ? o.score : null;
+          r.annual = o ? o.annual : null;
+        }
+        var lo = (mom.m1lo != null ? mom.m1lo : -1e9);
+        var hi = (mom.m1hi != null ? mom.m1hi : 1e9);
+        r.pass = (r.score != null && r.score >= lo && r.score <= hi);
+      } else if (id === 'momentum') {
+        var r15 = ser.length > 16 ? px / ser[ser.length - 17] - 1 : null;
+        var r20 = ser.length > 21 ? px / ser[ser.length - 22] - 1 : null;
+        var r25 = ser.length > 26 ? px / ser[ser.length - 27] - 1 : null;
+        r.r15 = r15 == null ? null : r15 * 100;
+        r.r20 = r20 == null ? null : r20 * 100;
+        r.r25 = r25 == null ? null : r25 * 100;
+        r.mom = (r15 != null && r20 != null && r25 != null) ? (2 * r15 + 3 * r20 + r25) * 100 : null;
+        r.gs = gsCalc(ref);
+        r.pass = (r.mom != null && r.mom > 0);
+      } else if (id === 'earth') {
+        var o1 = QE.wslopeFull(ser, 20), o2 = QE.wslopeFull(ser, 26);
+        r.score = o1 ? o1.score : null;
+        r.score2 = o2 ? o2.score : null;
+        r.pass = (r.score != null && r.score > 0 && r.score <= 3 && r.score2 != null && r.score2 > 0 && r.score2 <= 10);
+        r.why = r.pass ? '' : (r.score == null || r.score2 == null ? '数据不足' : '阈值外');
+      } else if (id === 'lowfreq') {
+        var o3 = QE.wslopeFull(ser, 25);
+        r.score = o3 ? o3.score : null;
+        r.annual = o3 ? o3.annual : null;
+        r.pass = (r.score != null && r.score > 0.05 && r.score <= 2);
+        r.why = r.pass ? '' : '阈值外';
+      } else {
+        var o4 = QE.wslopeFull(ser, 25);
+        r.score = o4 ? o4.score : null;
+        r.pass = (r.score != null && r.score > 0 && r.score <= 2);
+        r.why = r.pass ? '' : '阈值外';
+      }
+      out.push(r);
+    });
+    var keyName = (id === 'momentum') ? 'mom' : 'score';
+    out.sort(function (x, y) {
+      var X = (x[keyName] == null ? -1e9 : x[keyName]);
+      var Y = (y[keyName] == null ? -1e9 : y[keyName]);
+      return Y - X;
+    });
+    out.forEach(function (r, i) {
+      r.rank = i + 1;
+      if (id === 'momentum') {
+        var tk = (s.cfg && s.cfg.topK) || 3;
+        if (r.held) { r.signal = 'hold'; }
+        else if (i < tk) { r.signal = 'hold'; r.filled = true; }
+        else { r.signal = '-'; }
+      }
+    });
+    return out;
+  }
+
+  /* ---------- 平台快照策略：池子排名表 ---------- */
+  function snapRankCard(s, ranks, a) {
+    var d = (typeof SNAP !== 'undefined' && SNAP.s) ? (SNAP.s[s.id] || {}) : {};
+    var mom = d.mom || {};
+    var isPct = (mom.type === 'pct');
+    var win = mom.m1 || (isPct ? 2 : 25);
+    var passN = 0;
+    ranks.forEach(function (r) { if (r.pass) passN++; });
+    var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>池子排名</h2>' +
+      '<span class="rt">全 ' + ranks.length + ' 只 · 合格 ' + passN + '</span></div>' +
+      '<div class="tw"><table class="rt4"><thead><tr>' +
+      '<th>#</th><th>标的</th><th>现价</th><th>涨跌</th><th>' + (isPct ? (win + '日涨幅') : (win + '日斜率')) + '</th>' +
+      '<th>乖离</th><th>状态</th></tr></thead><tbody>';
+    ranks.forEach(function (r, i) {
+      var badge = r.held ? '<span class="badge on">持仓</span>'
+        : (r.pass ? (i === 0 ? '<span class="badge top">TOP1</span>' : '<span class="badge cand">候选</span>')
+          : '<span class="badge off">' + (isPct ? '区间外' : '阈值外') + '</span>');
+      var mv = (r.score == null) ? '--' : (isPct ? spct(r.score) : num(r.score, 3));
+      html += '<tr' + (r.held ? ' class="hrow"' : '') + '><td>' + (i + 1) + '</td>' +
+        '<td><span class="nm">' + esc(r.n) + '</span><i class="sub15">' + r.code + '</i></td>' +
+        '<td class="num">' + num(r.price, 3) + '</td>' +
+        '<td class="num ' + cls(r.chg) + '">' + spct(r.chg) + '</td>' +
+        '<td class="num ' + cls(r.score) + '"><b>' + mv + '</b></td>' +
+        '<td class="num ' + cls(r.bias) + '">' + (r.bias == null ? '--' : num(r.bias) + '%') + '</td>' +
+        '<td>' + badge + '</td></tr>';
+    });
+    var lo = (mom.m1lo != null ? mom.m1lo : 0), hi = (mom.m1hi != null ? mom.m1hi : 0);
+    html += '</tbody></table></div><div class="vnote" style="margin-top:8px">动量口径：' +
+      (isPct ? (win + ' 日涨幅，合格区间 ' + (lo * 100).toFixed(2) + '% ~ ' + (hi * 100).toFixed(1) + '%')
+        : (win + ' 日加权斜率（年化斜率 × 加权R²），合格区间 ' + lo + ' ~ ' + hi)) +
+      ' · 乖离 = 现价/MA20 − 1 · 按 ' + esc(a.lastDate || '最新') + ' 收盘复算 · 溢价需实时 IOPV，离线留空</div></div>';
+    return html;
+  }
+
+  /* ---------- 平台快照策略：调仓记录 ---------- */
+  function snapTrades(id, a) {
+    var all = a.trades || [];
+    if (!all.length) {
+      return '<div class="card tight"><div class="chd"><span class="bar"></span><h2>调仓记录</h2>' +
+        '<span class="rt">平台未开放</span></div><div class="vnote">该策略在平台侧只开放净值与日盈亏接口，' +
+        '没有逐笔交割单。净值、日/月/年收益、持仓与排名均为官方真值，不做估算补齐。</div></div>';
+    }
+    var PER = 15;
+    var pages = Math.max(1, Math.ceil(all.length / PER));
+    var pg = APP.tradePage[id] || 1;
+    if (pg > pages) pg = pages;
+    if (pg < 1) pg = 1;
+    var rows = all.slice().reverse().slice((pg - 1) * PER, pg * PER);
+    var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>调仓记录</h2>' +
+      '<span class="rt">共 ' + all.length + ' 笔 · 第 ' + pg + '/' + pages + ' 页</span></div>' +
+      '<div class="tw"><table class="rt4"><thead><tr>' +
+      '<th>日期</th><th>方向</th><th>标的</th><th>价格</th><th>股数</th><th>金额</th></tr></thead><tbody>';
+    rows.forEach(function (t) {
+      html += '<tr><td class="num" style="font-size:10.5px;color:var(--sub)">' + (t.d || '').slice(2) + '</td>' +
+        '<td><span class="badge ' + (t.act === 'BUY' ? 'on' : 'off') + '">' + (t.act === 'BUY' ? '买入' : '卖出') + '</span></td>' +
+        '<td><span class="nm">' + esc(t.n) + '</span><i class="sub15">' + t.code + '</i></td>' +
+        '<td class="num">' + num(t.px, 3) + '</td>' +
+        '<td class="num">' + (t.sh == null ? '--' : t.sh) + '</td>' +
+        '<td class="num">' + money(t.amt) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    if (pages > 1) {
+      html += '<div class="pager">' +
+        '<button class="pgb" onclick="UI.tp(\'' + id + '\',-1)"' + (pg <= 1 ? ' disabled' : '') + '>‹ 上一页</button>' +
+        '<span class="pgn">' + pg + ' / ' + pages + '</span>' +
+        '<button class="pgb" onclick="UI.tp(\'' + id + '\',1)"' + (pg >= pages ? ' disabled' : '') + '>下一页 ›</button></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function rankCard(id, p, a) {
-    var ranks = p.ranks || [];
+    var S = QE.STRATS[id];
+    var ranks = (p && p.ranks && p.ranks.length) ? p.ranks : rankAt(id, S, a);
     if (!ranks.length) return '';
-    var S = QE.STRATS[id], html = '';
+    if (S.snapshot) return snapRankCard(S, ranks, a);
+    var html = '';
 
     if (id === 'momentum') {
       var cfg = S.cfg;

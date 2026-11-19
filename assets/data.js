@@ -13,6 +13,7 @@
 
   var D = {
     klines: {},
+    biLast: {},
     rt: {},
     meta: {},
     loading: false,
@@ -48,12 +49,58 @@
     });
   }
 
+  /* 内置日线：作为基线，保证离线 / 慢网也能算出排名与净值 */
+  function applyBuiltin() {
+    var CL = root.CL;
+    if (!CL || !CL.ax || !CL.d) return 0;
+    var ax = CL.ax, i, code, n = 0;
+    D.biLast = D.biLast || {};
+    for (code in CL.d) {
+      var arr = CL.d[code], dd = [], cc = [], v;
+      for (i = 0; i < ax.length; i++) {
+        v = arr[i];
+        if (v > 0) {
+          dd.push(ax[i].slice(0, 4) + '-' + ax[i].slice(4, 6) + '-' + ax[i].slice(6));
+          cc.push(v);
+        }
+      }
+      if (!dd.length) continue;
+      var cur = D.klines[code];
+      if (cur && cur.d && cur.d.length) {
+        var lastB = dd[dd.length - 1];
+        for (i = 0; i < cur.d.length; i++) {
+          if (cur.d[i] > lastB) { dd.push(cur.d[i]); cc.push(cur.c[i]); }
+        }
+      }
+      D.klines[code] = { d: dd, c: cc };
+      D.biLast[code] = dd[dd.length - 1];
+      n++;
+    }
+    return n;
+  }
+
+  /* 计算完只把「内置基线之后」的增量写缓存，避免 localStorage 爆掉 */
+  function slimCache() {
+    var out = {}, code, i;
+    for (code in D.klines) {
+      var o = D.klines[code];
+      if (!o || !o.d) continue;
+      var bi = D.biLast && D.biLast[code];
+      if (!bi) { out[code] = o; continue; }
+      var dd = [], cc = [];
+      for (i = 0; i < o.d.length; i++) if (o.d[i] > bi) { dd.push(o.d[i]); cc.push(o.c[i]); }
+      if (dd.length) out[code] = { d: dd, c: cc };
+    }
+    return out;
+  }
+
   function loadCache() {
     try {
       var k = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
       var m = JSON.parse(localStorage.getItem(META_KEY) || '{}');
       D.klines = k || {}; D.meta = m || {};
     } catch (e) { D.klines = {}; D.meta = {}; }
+    applyBuiltin();
   }
 
   var saveTimer = null;
@@ -61,7 +108,7 @@
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
       try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(D.klines));
+        localStorage.setItem(CACHE_KEY, JSON.stringify(slimCache()));
         localStorage.setItem(META_KEY, JSON.stringify(D.meta));
       } catch (e) {
         // 超限时只保留最近 3 年
@@ -215,6 +262,7 @@
   D.sym = sym;
   D.marketState = marketState;
   D.loadCache = loadCache;
+  D.applyBuiltin = applyBuiltin;
   D.saveCache = saveCache;
   root.DATA = D;
 })(window);
