@@ -1059,10 +1059,15 @@
       '<span class="rt">' + esc(s.time) + (s.exec === 'snapshot' ? ' · 快照' : '') + '</span></div>';
 
     if (s.snapshot) {
+      var rk0 = (p && p.ranks && p.ranks.length) ? p.ranks : rankAt(id, s, a);
+      html += secBar('01', '今日', '该做什么 · 持仓要不要动');
       html += snapHead(id, s, a, m);
+      html += holdVerdict(id, s, rk0, a);
+      html += secBar('02', '资产', '净值 · 持仓 · 日/月/年收益');
       html += snapStats(id, s, a, m);
       html += snapPos(id, s, a);
       html += perfCard(id, a);
+      html += secBar('03', '依据', '排名 · 调仓 · 规则');
       html += rankCard(id, p, a);
       html += snapTrades(id, a);
       html += '<div class="card"><div class="chd"><span class="bar"></span><h2>策略规则</h2><span class="rt">' + esc(s.tag) + '</span></div>' +
@@ -1120,7 +1125,8 @@
         '</div><div style="margin-top:8px;font-size:11.5px;color:var(--sub)">' + esc(reason) +
         ' · 下一时点 ' + md(nextRun(id)) + ' ' + s.time + '（' + cdText(nextRun(id)) + '）</div>';
     }
-    html += '<div class="' + sigCls + '"><div class="chd"><span class="bar"></span><h2>今日信号 · ' + esc(s.name) + '</h2><span class="rt">' + s.time + '</span></div>' +
+    html += secBar('01', '今日', '该做什么 · 持仓要不要动');
+    html += '<div class="' + sigCls + '"><div class="chd"><span class="bar"></span><h2>今日信号</h2><span class="rt">' + s.time + '</span></div>' +
       '<div style="font-size:13px;font-weight:700;margin-bottom:6px">' + sigTitle + '</div>' + sigBody + '</div>';
 
     /* 目标组合（动量轮动） */
@@ -1142,18 +1148,25 @@
       html += '<div class="vnote" style="margin-top:8px">按整百股取整 · 佣金万3 · ×0.99 保守取整；收盘后自动记账，无需手动填单</div></div>';
     }
 
-    /* 指标 */
-    html += '<div class="card tight"><div class="chd"><span class="bar"></span><h2>账户（自动记账）</h2><span class="rt">起始 ' + a.start + '</span></div>' +
+    /* 今日段收口：按本策略规则判定持/换仓 */
+    html += holdVerdict(id, s, (p && p.ranks && p.ranks.length) ? p.ranks : rankAt(id, s, a), a);
+
+    /* 账户（4 主格 + 次要一行，数字一个不少） */
+    html += secBar('02', '资产', '账户 · 持仓 · 日/月/年收益');
+    html += '<div class="card tight"><div class="chd"><span class="bar"></span><h2>账户</h2>' +
+      '<span class="rt">起始 ' + a.start + ' · 自动记账</span></div>' +
       '<div class="mgrid">' +
       mi('总资产', money(lv.cur), '') +
+      mi('累计收益', m ? spct(m.total) : '--', m ? cls(m.total) : '') +
       mi(lv.refLabel + '盈亏', (lv.dayPnl >= 0 ? '+' : '') + money(lv.dayPnl), cls(lv.dayPnl)) +
       mi('组合今涨', lv.combPct != null ? spct(lv.combPct) : '空仓', cls(lv.combPct)) +
-      mi('累计收益', m ? spct(m.total) : '--', m ? cls(m.total) : '') +
-      mi('年化收益', m ? spct(m.annual, 1) : '--', m ? cls(m.annual) : '') +
-      mi('最大回撤', m ? pct(m.mdd) : '--', 'dn') +
-      mi('夏普比率', m ? m.sharpe.toFixed(2) : '--', '') +
-      mi('持仓市值', money(lv.mv), '') +
-      mi('可用现金', money(lv.cash), '') +
+      '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:9px;font-size:11px;color:var(--sub)">' +
+      '<span>年化 <b class="num ' + (m ? cls(m.annual) : '') + '">' + (m ? spct(m.annual, 1) : '--') + '</b></span>' +
+      '<span>最大回撤 <b class="num dn">' + (m ? pct(m.mdd) : '--') + '</b></span>' +
+      '<span>夏普 <b class="num">' + (m ? m.sharpe.toFixed(2) : '--') + '</b></span>' +
+      '<span>持仓市值 <b class="num">' + money(lv.mv) + '</b></span>' +
+      '<span>可用现金 <b class="num">' + money(lv.cash) + '</b></span>' +
       '</div></div>';
 
     /* 持仓 */
@@ -1175,6 +1188,7 @@
     /* 收益分析：走势 + 日/月/年日历 */
     html += perfCard(id, a);
 
+    html += secBar('03', '依据', '排名 · 调仓 · 风控 · 规则');
     /* 波动目标 / 溢价预警（动量轮动专属） */
     if (id === 'momentum' && p.vol) html += volCard(p);
     if (id === 'momentum') html += premiumWarn(p);
@@ -1236,6 +1250,14 @@
 
     var host0 = $('view-detail');
     if (host0) host0.innerHTML = html;
+  }
+
+  function secBar(no, t, hint) {
+    return '<div style="display:flex;align-items:center;gap:8px;margin:20px 2px 1px">' +
+      '<i style="font-style:normal;font-size:10px;letter-spacing:1.5px;color:var(--dim)">' + no + '</i>' +
+      '<b style="font-size:12.5px;letter-spacing:.5px">' + t + '</b>' +
+      '<span style="flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.16),transparent)"></span>' +
+      '<span style="font-size:10.5px;color:var(--dim)">' + hint + '</span></div>';
   }
 
   function mi(k, v, c) {
@@ -1397,7 +1419,7 @@
       '<div style="opacity:.62;margin-top:3px">依据本策略自身参数：' + rule +
       ' · 阈值 ' + (mom.m1lo != null ? mom.m1lo : 0) + '~' + (mom.m1hi != null ? mom.m1hi : 0) +
       ' · TOP' + topN + (cfg.minHold ? ' · 最短持有 ' + cfg.minHold + ' 日' : '') +
-      (id === 'momentum' ? ' · GS/乖离剔除后递补' : '') + '</div></div>';
+      (id === 'momentum' ? ' · GS/乖离剔除后递补 · 股数以目标组合为准' : '') + '</div></div>';
   }
 
   function maAvg(ser, n) {
@@ -1529,7 +1551,6 @@
       (isPct ? (win + ' 日涨幅，合格区间 ' + (lo * 100).toFixed(2) + '% ~ ' + (hi * 100).toFixed(1) + '%')
         : (win + ' 日加权斜率（年化斜率 × 加权R²），合格区间 ' + lo + ' ~ ' + hi)) +
       ' · 乖离 = 现价/MA20 − 1 · 按 ' + esc(a.lastDate || '最新') + ' 收盘复算 · 溢价需实时 IOPV，离线留空</div></div>';
-    html += holdVerdict(s.id, s, ranks, a);
     return html;
   }
 
@@ -1602,7 +1623,6 @@
       });
       html += '</tbody></table></div>' +
         '<div class="vnote" style="margin-top:8px">动量 = 2×r15+3×r20+1×r25（副行为 r15 / r20 / r25）；乖离 = 现价/MA20−1；溢价 = 现价/IOPV−1；GS &gt;0 为 G，≤0 为 S；信号「前N补」= 剔除后按乖离递补；高亮行 = 当前持仓</div></div>';
-      html += holdVerdict(id, S, ranks, a);
       return html;
     }
 
@@ -1625,7 +1645,6 @@
           '<td>' + badge + '</td></tr>';
       });
       html += '</tbody></table></div><div class="vnote" style="margin-top:8px">M20 ∈ (0, 3] 作主排名 · M26 ∈ (0, 10] 作过滤 · 得分 = 年化斜率 × 加权R² · 涨跌 ≥9.8% 剔除</div></div>';
-      html += holdVerdict(id, S, ranks, a);
       return html;
     }
 
@@ -1649,7 +1668,6 @@
         '<td>' + badge + '</td></tr>';
     });
     html += '</tbody></table></div><div class="vnote" style="margin-top:8px">得分 = 年化斜率 × 加权R²（×1万显示）· 阈值 0.05 ~ 2.0（即得分 500 ~ 20000）· 空仓时持 511880 银华日利</div></div>';
-    html += holdVerdict(id, S, ranks, a);
     return html;
   }
 
