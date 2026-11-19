@@ -150,11 +150,13 @@
     });
     var endD = navD.length ? navD[navD.length - 1] : '';
     var cash = nav.length ? nav[nav.length - 1] : 0;
-    if (idx) {
-      for (k in pos) {
-        var px = QE.priceAt(idx, k, endD);
-        if (px > 0) cash -= pos[k].sh * px;
+    for (k in pos) {
+      var px = idx ? QE.priceAt(idx, k, endD) : 0;
+      if (!(px > 0) && typeof CL !== 'undefined' && CL.d && CL.d[k] && CL.d[k].length) {
+        var arr = CL.d[k], q;
+        for (q = arr.length - 1; q >= 0; q--) { if (arr[q] > 0) { px = +arr[q]; break; } }
       }
+      if (px > 0) cash -= pos[k].sh * px;
     }
     return {
       id: id, capital: d.init || (nav[0] || 1), start: navD[0] || '', lastDate: endD,
@@ -1840,6 +1842,58 @@
   }
 
   /* ---------- 视图切换 ---------- */
+  /* 运行时同步平台官方真值（CORS 已放开）。失败静默回落本地快照 */
+  function liveSync() {
+    var ids = ['13429', '96242'], jobs = [], MP = {
+      total_return: 'total', annualized_return: 'annual', volatility: 'vol',
+      sharpe_ratio: 'sharpe', calmar_ratio: 'calmar', max_drawdown: 'mdd',
+      win_rate: 'win', total_trades: 'trades'
+    };
+    ids.forEach(function (id) {
+      jobs.push(fetch('https://www.cifangquant.com/api/etf/strategy/' + id + '/info', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          var d = j.data || {};
+          var s = (typeof SNAP !== 'undefined' && SNAP.s) ? SNAP.s['p' + id] : null;
+          if (!s) return false;
+          var navs = [], i, x;
+          for (i = 0; i < (d.daily_pnl || []).length; i++) {
+            x = d.daily_pnl[i];
+            if (x && x.portfolio_value != null) {
+              navs.push([String(x.date).replace(/-/g, ''), Math.round(+x.portfolio_value * 100) / 100]);
+            }
+          }
+          if (navs.length) s.nav = navs;
+          if (d.holding_etfs) {
+            s.holds = d.holding_etfs.map(function (h) {
+              return { code: String(h.code), qty: h.amount, px: h.buy_price,
+                       date: String(h.buy_date || '').replace(/-/g, '') };
+            });
+          }
+          var pm = d.performance_metrics || {}, m = {}, k, v;
+          for (k in MP) {
+            if (pm[k] == null) continue;
+            v = parseFloat(String(pm[k]).replace(/[%,]/g, ''));
+            if (!isNaN(v)) m[MP[k]] = (k === 'max_drawdown' ? Math.abs(v) : v);
+          }
+          if (m.trades != null) m.trades = Math.round(m.trades);
+          if (Object.keys(m).length) s.metrics = m;
+          s.sync = '在线 ' + new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
+          return true;
+        })
+        .catch(function () { return false; }));
+    });
+    return Promise.all(jobs).then(function (res) {
+      var any = false;
+      res.forEach(function (x) { if (x) any = true; });
+      if (!any) { toast('官方接口暂不可达，继续用本地快照'); return; }
+      try { runAll(); } catch (e) {}
+      try { injectSnap(); } catch (e) {}
+      renderAll();
+      toast('已同步平台官方当日数据');
+    });
+  }
+
   function renderAll() {
     renderHome();
     Object.keys(QE.STRATS).forEach(function (id) { if (!QE.STRATS[id].snapshot) renderStrat(id); });
@@ -2122,12 +2176,13 @@
     for (var i = 0; i < tabs.length; i++) {
       tabs[i].addEventListener('click', function () { go(this.getAttribute('data-v')); });
     }
-    $('btnRefresh').addEventListener('click', function () { boot(true); });
+    $('btnRefresh').addEventListener('click', function () { boot(true); try { liveSync(); } catch (e) {} });
     themeInit();
     if ($('btnTheme')) $('btnTheme').addEventListener('click', toggleTheme);
     var h = (location.hash || '').replace('#', '');
     if (h) window.__QW_H = h;
     boot();
+    setTimeout(function () { try { liveSync(); } catch (e) {} }, 900);
   });
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     // 兜底：若 DOMContentLoaded 已过
