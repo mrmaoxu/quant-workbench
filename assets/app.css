@@ -377,3 +377,12 @@ html[data-theme="light"] .tw table th{background:var(--card2)}
 html[data-theme="light"] .tk-gold{background:rgba(176,122,6,.10)!important;color:#8a5f04!important;border-color:rgba(176,122,6,.28)!important}
 html[data-theme="light"] .tk-cyan{background:rgba(10,150,120,.09)!important;color:#0b7a61!important;border-color:rgba(10,150,120,.24)!important}
 html[data-theme="light"] .iconbtn{background:var(--card);border-color:var(--line)}
+@media (max-width:759px){
+  table.rt4 td,table.rt4 th{padding-left:2.5px;padding-right:2.5px;font-size:10.5px}
+  table.rt4 th{font-size:9px}
+  table.rt4 td .nm{font-size:10.5px}
+  table.rt4 td .sub15{font-size:8px}
+  table.rt4 .badge{font-size:8.5px;padding:1px 2px}
+  table.rt4 td:nth-child(2){max-width:80px}
+  table.rt4 td:nth-child(2) .nm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
