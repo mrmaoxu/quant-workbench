@@ -69,9 +69,12 @@
       ],
       bench: { c: '510300', n: '沪深300' },
       cfg: {
-        n1: 20, n2: 26, lo1: 0, hi1: 3, lo2: 0, hi2: 10,
-        topK: 1, minHold: 2, reserve: 0.02, limit: 0.098,
-        commission: 0.0001, slip: 0.001, minLot: 100
+        /* 官方 /22753 参数：weighted_slope 20 日单动量，合格区间 0~3，
+           无 M2 过滤、无涨跌停剔除、满仓无预留、滑点 0.1%、佣金万1 */
+        n1: 20, n2: 20, lo1: 0, hi1: 3, lo2: -999, hi2: 999,
+        topK: 1, minHold: 2, reserve: 0, limit: 1,
+        commission: 0.0001, slip: 0.001, minLot: 100,
+        ddStop: 0.04, stopLoss: 0.06, freeze: 0
       }
     },
 

@@ -232,12 +232,42 @@
     }, function () { return {}; });
   }
 
+  /* ---- 实时：新浪（第二源，无 IOPV）---- */
+  function sinaRT(codes) {
+    if (!codes.length) return Promise.resolve({});
+    return new Promise(function (res) {
+      var s = document.createElement('script'), done = false;
+      var clean = function () { if (s.parentNode) s.parentNode.removeChild(s); };
+      var fin = function (o) { if (done) return; done = true; clean(); res(o); };
+      s.charset = 'gbk';
+      s.onload = function () {
+        var out = {};
+        codes.forEach(function (c) {
+          var v = window['hq_str_' + sym(c)];
+          if (!v) return;
+          var f = String(v).split(','), px = parseFloat(f[3]);
+          if (!(px > 0)) return;
+          out[c] = { price: px, pct: null, prev: parseFloat(f[2]) || null, nav: null, name: f[0] || null };
+          try { delete window['hq_str_' + sym(c)]; } catch (e) {}
+        });
+        fin(out);
+      };
+      s.onerror = function () { fin({}); };
+      setTimeout(function () { fin({}); }, 7000);
+      s.src = 'https://hq.sinajs.cn/rn=' + Date.now() + '&list=' + codes.map(sym).join(',');
+      document.head.appendChild(s);
+    });
+  }
+
   function loadRT(codes) {
     return tencentRT(codes).then(function (a) {
       if (Object.keys(a).length >= 3) { D.rtSrc = '腾讯'; return a; }
-      return emRT(codes).then(function (b) {
-        D.rtSrc = Object.keys(b).length ? '东财' : '--';
-        return Object.keys(b).length ? b : a;
+      return sinaRT(codes).then(function (s2) {
+        if (Object.keys(s2).length >= 3) { D.rtSrc = '新浪'; return s2; }
+        return emRT(codes).then(function (b) {
+          D.rtSrc = Object.keys(b).length ? '东财' : '--';
+          return Object.keys(b).length ? b : (Object.keys(s2).length ? s2 : a);
+        });
       });
     }).then(function (out) {
       if (Object.keys(out).length) { D.rt = out; D.lastFetch = Date.now(); }

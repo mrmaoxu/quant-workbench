@@ -1,7 +1,7 @@
 /* ui.js — 界面渲染与自动记账调度 */
 (function () {
   'use strict';
-  var SKEY = 'qw_state_v4';
+  var SKEY = 'qw_state_v5';
   var APP = {
     settings: {
       momentum: { capital: 100000, start: '2020-01-02' },
@@ -92,13 +92,14 @@
 
   /* ===== 快照策略：官方接口 / 本地复算（非自动记账） ===== */
   var SNAP_META = {
-    p13429: { short: '纯粹', group: '平台官方', tag: '官方真值', tagc: 'gold' },
-    p96242: { short: 'ETF动量轮动', group: '平台官方', tag: '官方真值', tagc: 'gold' },
-    p96561: { short: '大类资产轮动', group: '防守策略', tag: '官方真值', tagc: 'gold' },
-    p96563: { short: '七龙珠V2', group: '防守策略', tag: '官方真值', tagc: 'gold' },
-    p96560: { short: '银行等股灾', group: '防守策略', tag: '官方真值', tagc: 'gold' }
+    p13429: { short: '纯粹', tag: '官方真值', tagc: 'gold' },
+    p96242: { short: 'ETF动量轮动', tag: '官方真值', tagc: 'gold' },
+    p96563: { short: '七龙珠V2', tag: '官方真值', tagc: 'gold' },
+    p96560: { short: '银行等股灾', tag: '官方真值', tagc: 'gold' },
+    p96561: { short: '大类资产轮动', tag: '官方真值', tagc: 'gold' },
+    p22753: { short: '买地球·官方', tag: '官方对照', tagc: 'cyan', aux: true }
   };
-  var SNAP_ORDER = ['p13429', 'p96242', 'p96561', 'p96563', 'p96560'];
+  var SNAP_ORDER = ['p13429', 'p96242', 'p96563', 'p96560', 'p96561'];
   var CODE_NAMES = {
     '518880':'黄金ETF','513500':'标普500','159915':'创业板ETF','511380':'可转债ETF','510500':'中证500',
     '159985':'豆粕ETF','513880':'日经225','513100':'纳指ETF','159518':'标普油气','512480':'半导体ETF',
@@ -166,14 +167,11 @@
   }
 
   function injectSnap() {
-    ['momentum', 'earth', 'lowfreq'].forEach(function (id) {
-      if (QE.STRATS[id]) QE.STRATS[id].group = '核心引擎';
-    });
     if (typeof SNAP === 'undefined' || !SNAP || !SNAP.s) return;
     SNAP_ORDER.forEach(function (id) {
       var d = SNAP.s[id];
       if (!d) return;
-      var mt = SNAP_META[id] || { short: d.name, group: '其他', tag: '快照', tagc: 'blue' };
+      var mt = SNAP_META[id] || { short: d.name, tag: '快照', tagc: 'blue' };
       var pool = (d.pool || []).map(function (c) { return { c: c, n: cname(c) }; });
       var cfg0 = d.cfg || {};
       QE.STRATS[id] = {
@@ -186,7 +184,7 @@
           windows: [], weights: [], volTarget: null, volWin: null
         },
         snapshot: true, official: !!d.official, engine: !!d.engine,
-        tag: mt.tag, tagc: mt.tagc, group: mt.group, note: d.note || ''
+        tag: mt.tag, tagc: mt.tagc, group: 'all', note: d.note || ''
       };
       APP.settings[id] = { capital: d.init || 5000, start: d.start ? dsh(d.start) : '', fixed: true };
       APP.accounts[id] = buildSnapAccount(id, d);
@@ -477,7 +475,26 @@
   }
 
   /* ---------- 收益分析：序列 / 走势图 / 日历 ---------- */
-  function perfData(a) {
+  function livePoint(a, id) {
+    var today = todayStr();
+    var wd = new Date().getDay();
+    if (wd === 0 || wd === 6) return null;
+    if (a.navD && a.navD.length && a.navD[a.navD.length - 1] === today) return null;
+    if (a.src === 'snap') {
+      var sm = (typeof SNAP !== 'undefined' && SNAP.s) ? SNAP.s[id] : null;
+      var tk = today.replace(/-/g, '');
+      if (sm && sm.nav && sm.nav.length && String(sm.nav[sm.nav.length - 1][0]) === tk) {
+        return { d: today, v: +sm.nav[sm.nav.length - 1][1] };
+      }
+    }
+    try {
+      var lv = liveValue(id);
+      if (lv && lv.cur > 0) return { d: today, v: lv.cur };
+    } catch (e) {}
+    return null;
+  }
+
+  function perfData(a, extra) {
     var nav = a.nav || [], navD = a.navD || [], out = [];
     if (!nav.length) return out;
     var base = a.capital || nav[0], peak = -Infinity;
@@ -491,6 +508,16 @@
         dd: peak > 0 ? v / peak - 1 : 0,
         ret: i > 0 && nav[i - 1] > 0 ? v / nav[i - 1] - 1 : 0,
         pnl: i > 0 ? v - nav[i - 1] : 0
+      });
+    }
+    if (extra && extra.d && extra.v > 0 && navD[navD.length - 1] !== extra.d) {
+      var pv = nav[nav.length - 1], pk = Math.max(peak, extra.v);
+      out.push({
+        d: extra.d, v: extra.v,
+        cum: base > 0 ? extra.v / base - 1 : 0,
+        dd: pk > 0 ? extra.v / pk - 1 : 0,
+        ret: pv > 0 ? extra.v / pv - 1 : 0,
+        pnl: extra.v - pv, intraday: true
       });
     }
     return out;
@@ -843,14 +870,15 @@
   }
 
   function perfCard(id, a) {
-    var rows = perfData(a);
+    var rows = perfData(a, livePoint(a, id));
     if (rows.length < 2) return '';
     var dd = maxDDInfo(rows);
     var mode = APP.calMode[id] || 'd';
     var pg = APP.calPage[id] || {};
     var tot = rows[rows.length - 1].cum;
     var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>收益走势</h2>' +
-      '<span class="rt">' + a.start.slice(2) + '~' + rows[rows.length - 1].d.slice(2) + ' · ' + rows.length + ' 日</span></div>';
+      '<span class="rt">' + a.start.slice(2) + '~' + rows[rows.length - 1].d.slice(2) + ' · ' + rows.length + ' 日' +
+      (rows[rows.length - 1].intraday ? ' · 今日实时' : '') + '</span></div>';
     html += '<div class="pstats">' +
       '<div><span>区间收益</span><b class="' + cls(tot) + '">' + spct(tot) + '</b></div>' +
       '<div><span>最大回撤</span><b class="dn">' + pct(dd.mdd, 1) + '</b></div>' +
@@ -890,6 +918,96 @@
     return html;
   }
 
+  /* ---------- 卡片：与次方官网同构（等高、指标左右对齐） ---------- */
+  function momLabelOf(id, s, snap) {
+    var mom = (snap && snap.mom) || null;
+    if (mom) return mom.m2 ? ('双动量 ' + mom.m1 + '/' + mom.m2) : ('加权斜率 ' + mom.m1 + '日');
+    var c = s.cfg || {};
+    if (c.n2 && c.n2 !== c.n1) return '双动量 ' + c.n1 + '/' + c.n2;
+    return '加权斜率 ' + (c.n1 || 25) + '日';
+  }
+  function slipTxt(v) {
+    if (v == null) return null;
+    var p = v * 100;
+    return '滑点' + (p >= 0.1 ? p.toFixed(2).replace(/0$/, '') : p.toFixed(3).replace(/0+$/, '')) + '%';
+  }
+  function cardHTML(id) {
+    var s = QE.STRATS[id], a = APP.accounts[id] || { nav: [], cash: 0 };
+    var snap = (typeof SNAP !== 'undefined' && SNAP.s) ? (SNAP.s[id] || null) : null;
+    var eo = null;
+    if (id === 'earth' && typeof SNAP !== 'undefined' && SNAP.s) eo = SNAP.s.p22753 || null;
+    var navs = a.nav || [];
+    var lastV = navs.length ? navs[navs.length - 1] : 0;
+    var dPnl = navs.length > 1 ? lastV - navs[navs.length - 2] : 0;
+    var dPct = (navs.length > 1 && navs[navs.length - 2]) ? dPnl / navs[navs.length - 2] : 0;
+    var curV = lastV;
+    if (!s.snapshot) { var lv = liveValue(id); curV = lv.cur; dPnl = lv.dayPnl; dPct = lv.dayPct; }
+    var m;
+    if (id === 'earth' && eo && eo.nav && eo.nav.length > 1) {
+      m = snapMetrics('p22753', eo, eo.nav);
+      curV = +eo.nav[eo.nav.length - 1][1];
+      var ep = +eo.nav[eo.nav.length - 2][1];
+      dPnl = curV - ep; dPct = ep > 0 ? dPnl / ep : 0;
+    } else {
+      m = s.snapshot ? snapMetrics(id, snap || {}, navs) : (metrics[id] || {});
+    }
+    var cum = s.snapshot ? m.total : (m.total != null ? m.total : 0);
+    var ann = s.snapshot ? m.annual : m.annual;
+    var mdd = s.snapshot ? m.mdd : (m.mdd != null ? -Math.abs(m.mdd) : null);
+    var sharpe = s.snapshot ? m.sharpe : m.sharpe;
+    var cfg = s.cfg || {};
+    var scfg = (id === 'earth' && eo && eo.cfg) ? eo.cfg : ((snap && snap.cfg) || {});
+    var exec = String(scfg.exec || s.time || '14:50').slice(0, 5);
+    var minHold = scfg.minHold != null ? scfg.minHold : (cfg.minHold || 1);
+    var slip = scfg.slip != null ? scfg.slip : cfg.slip;
+    var pills = [momLabelOf(id, s, (id === 'earth' && eo) ? eo : snap)];
+    pills.push('持有' + minHold + (scfg.calDays ? '自然日' : '天'));
+    var dd = scfg.ddStop != null ? scfg.ddStop : (cfg.ddStop || 0);
+    if (dd > 0) pills.push('止损' + (dd * 100).toFixed(0) + '%');
+    var st2 = slipTxt(slip);
+    if (st2) pills.push(st2);
+    var sid = s.snapshot ? ('ID:' + id.replace(/^p/, '')) : '本地引擎';
+    var startD = (snap && snap.start) ? dsh(snap.start) : ((APP.settings[id] || {}).start || '');
+    var yrs = startD ? (new Date() - new Date(startD)) / 31536000000 : 0;
+    var metaR = startD ? (yrs >= 1 ? '回测' + Math.round(yrs) + '年' : '回测' + Math.max(1, Math.round(yrs * 12)) + '月') : '';
+    var navsForSpark = (id === 'earth' && eo && eo.nav && eo.nav.length > 3)
+      ? eo.nav.map(function (x) { return +x[1]; }) : navs;
+    var spark = navsForSpark.length > 3
+      ? '<svg class="spk" viewBox="0 0 120 40" preserveAspectRatio="none"><path d="' + navPath(navsForSpark.slice(-60), 120, 38) + '" fill="none" stroke="' + (navsForSpark[navsForSpark.length - 1] >= navsForSpark[0] ? 'var(--up)' : 'var(--dn)') + '" stroke-width="1.3" opacity=".7" vector-effect="non-scaling-stroke"/></svg>'
+      : '';
+    var foot, footCls = 'dim';
+    if (s.snapshot) {
+      foot = (snap && snap.sync ? '官方 · ' + snap.sync : '官方真值') + (snap && snap.intraday ? ' · 盘中估算' : '');
+      footCls = 'gold';
+    } else if (id === 'earth' && eo && eo.holds && eo.holds.length) {
+      var h0 = eo.holds[0];
+      foot = '官方信号 · ' + cname(h0.code) + ' ' + (h0.qty || '') + '股';
+      footCls = 'cyan';
+    } else if (id === 'earth') {
+      foot = '本地复算 · 14:30 时点价 · 无官方对照';
+    } else {
+      foot = '本地引擎 · 收盘价复算';
+    }
+    var badge = (dPct != null ? spct(dPct) : '--');
+    var badgeCls = (dPct || 0) >= 0 ? 'up' : 'dn';
+    return '<div class="sc2" onclick="UI.go(\'' + id + '\')">' +
+      '<div class="s2h"><span class="nm">' + esc(s.short || s.name) + '</span>' +
+      '<span class="bdg ' + badgeCls + '">' + badge + '</span></div>' +
+      '<div class="s2m"><span>' + sid + '</span><i>' + metaR + '</i></div>' +
+      '<div class="s2p">' + pills.map(function (p) { return '<span>' + esc(p) + '</span>'; }).join('') + '</div>' +
+      '<div class="s2v num">' + money(curV) + '<small>元</small></div>' +
+      '<div class="s2k">' +
+      '<div><span>今日盈亏</span><b class="num ' + cls(dPnl) + '">' + (dPnl >= 0 ? '+' : '') + money(dPnl) + '</b></div>' +
+      '<div><span>累计收益</span><b class="num ' + cls(cum) + '">' + (cum != null ? spct(cum) : '--') + '</b></div>' +
+      '<div><span>年化收益</span><b class="num ' + cls(ann) + '">' + (ann != null ? spct(ann, 1) : '--') + '</b></div>' +
+      '<div><span>最大回撤</span><b class="num dn">' + (mdd != null ? pct(mdd, 1) : '--') + '</b></div>' +
+      '<div><span>夏普比率</span><b class="num">' + (sharpe != null ? (+sharpe).toFixed(2) : '--') + '</b></div>' +
+      '<div><span>执行时间</span><b class="num">' + exec + '</b></div>' +
+      '</div>' +
+      '<div class="s2f ' + footCls + '"><span>' + esc(foot) + '</span>' + spark + '</div>' +
+      '</div>';
+  }
+
   /* ---------- 渲染：总览 ---------- */
   function renderHome() {
     var CORE = ['momentum', 'earth', 'lowfreq'];
@@ -910,7 +1028,7 @@
 
     var html = '';
     html += '<div class="hero">' +
-      '<div class="lb">核心三策略合计 · 自动记账</div>' +
+      '<div class="lb">本地核心三策略合计 · 自动记账</div>' +
       '<div class="big num">' + money(tot) + '<small>元</small></div>' +
       '<div class="row">' +
       '<div>' + (rows[0] ? rows[0].lv.refLabel : '今日') + '盈亏<b class="num ' + cls(dayPnl) + '">' + (dayPnl >= 0 ? '+' : '') + money(dayPnl) + '</b>' +
@@ -967,57 +1085,13 @@
       }
     }
 
-    /* 策略卡：按分组渲染 */
-    var GROUPS = ['核心引擎', '平台官方', '防守策略'];
-    GROUPS.forEach(function (gname) {
-      var list = rows.filter(function (r) { return (QE.STRATS[r.id].group || '核心引擎') === gname; });
-      if (!list.length) return;
-      html += '<div class="gtitle"><span>' + gname + '</span><i>' + list.length + ' 个策略</i></div>';
-      html += '<div class="sgrid">';
-      list.forEach(function (r) {
-        var s = QE.STRATS[r.id], a = APP.accounts[r.id], m = metrics[r.id] || {};
-        var navs = a.nav || [];
-        var spark = navs.length > 3
-          ? '<svg viewBox="0 0 120 46" preserveAspectRatio="none" style="width:120px;height:46px"><path d="' + navPath(navs.slice(-60), 120, 44) + '" fill="none" stroke="' + (navs[navs.length - 1] >= navs[0] ? '#ff4d4f' : '#12b886') + '" stroke-width="1.4" opacity=".75" vector-effect="non-scaling-stroke"/></svg>'
-          : '';
-        if (s.snapshot) {
-          var lastV = navs.length ? navs[navs.length - 1] : 0;
-          var dPnl = navs.length > 1 ? lastV - navs[navs.length - 2] : 0;
-          var dPct = (navs.length > 1 && navs[navs.length - 2]) ? dPnl / navs[navs.length - 2] : 0;
-          var syTxt = (SNAP.s[r.id] && SNAP.s[r.id].sync) ? String(SNAP.s[r.id].sync) : '';
-          var syringe = a.lastDate ? ('官方 · ' + syTxt) : syTxt;
-          html += '<div class="sc" onclick="UI.go(\'' + r.id + '\')">' +
-            '<div class="sh"><span class="nm">' + esc(s.short || s.name) + '</span>' +
-            '<span class="st tk-' + (s.tagc || 'blue') + '">' + esc(s.tag) + '</span></div>' +
-            '<div class="v num">' + money(lastV) + '<small>元</small></div>' +
-            '<div class="r2"><span>今日 <b class="num ' + cls(dPnl) + '">' + (dPnl >= 0 ? '+' : '') + money(dPnl) + ' <i class="pp ' + cls(dPct) + '">' + spct(dPct) + '</i></b></span>' +
-            '<span>累计 <b class="num ' + cls(m.total) + '">' + (m.total != null ? spct(m.total) : '--') + '</b></span>' +
-            '<span>年化 <b class="num ' + cls(m.annual) + '">' + (m.annual != null ? spct(m.annual, 1) : '--') + '</b></span></div>' +
-            '<div class="hint">' + esc(s.sub || '') + (a.lastDate ? '<em>截至 ' + a.lastDate.slice(5) + '</em>' : '') + '</div>' +
-            (syringe ? '<div class="sy">' + esc(syringe) + '</div>' : '') +
-            '<div class="spark">' + spark + '</div></div>';
-          return;
-        }
-        var st = pend[r.id] && pend[r.id].actions.length ? { t: '待操作', c: 'act' } : (QE.posList(a).length ? { t: '持有中', c: 'hold' } : { t: '空仓', c: 'cash' });
-        var hint;
-        if (pend[r.id] && pend[r.id].actions.length) {
-          hint = pend[r.id].actions.map(function (x) { return (x.act === 'BUY' ? '买 ' : '卖 ') + x.n + (x.sh ? ' ' + x.sh + '股' : ''); }).join(' · ');
-        } else {
-          var pos = QE.posList(a);
-          hint = pos.length ? pos.map(function (p) { return QE.nameOf(s, p.code) + ' ' + p.sh + '股'; }).join(' · ') : '空仓持币，等待信号';
-        }
-        html += '<div class="sc" onclick="UI.go(\'' + r.id + '\')">' +
-          '<div class="sh"><span class="nm">' + esc(s.name) + '</span><span class="st ' + st.c + '">' + st.t + '</span></div>' +
-          '<div class="v num">' + money(r.lv.cur) + '<small>元</small></div>' +
-          '<div class="r2"><span>' + r.lv.refLabel + ' <b class="num ' + cls(r.lv.dayPnl) + '">' + (r.lv.dayPnl >= 0 ? '+' : '') + money(r.lv.dayPnl) + '</b>' +
-          '<i class="pp ' + cls(r.lv.combPct) + '">' + (r.lv.combPct != null ? '组合 ' + spct(r.lv.combPct) : '空仓') + '</i></span>' +
-          '<span>累计 <b class="num ' + cls(m.total) + '">' + (m.total != null ? spct(m.total) : '--') + '</b></span>' +
-          '<span>年化 <b class="num ' + cls(m.annual) + '">' + (m.annual != null ? spct(m.annual, 1) : '--') + '</b></span></div>' +
-          '<div class="hint">' + esc(hint) + '</div>' +
-          '<div class="spark">' + spark + '</div></div>';
-      });
-      html += '</div>';
-    });
+    /* 策略卡：统一网格，不区分来源 */
+    var ORDER = ['momentum', 'earth', 'lowfreq', 'p13429', 'p96242', 'p96563', 'p96560', 'p96561'];
+    var list = [];
+    ORDER.forEach(function (id) { if (QE.STRATS[id]) list.push(id); });
+    Object.keys(QE.STRATS).forEach(function (id) { if (ORDER.indexOf(id) < 0) list.push(id); });
+    html += '<div class="gtitle one"><span>全部策略</span><i>' + list.length + ' 个 · 同一口径账本</i></div>';
+    html += '<div class="sgrid2">' + list.map(function (id) { return cardHTML(id); }).join('') + '</div>';
 
     /* 合计曲线 */
     var combo = combinedNav();
@@ -1056,6 +1130,29 @@
   }
 
   /* ---------- 渲染：策略详情 ---------- */
+  function offCard(pid, d) {
+    if (!d) return '';
+    var sm = snapMetrics(pid, d, d.nav);
+    var nav = d.nav || [], last = nav.length ? +nav[nav.length - 1][1] : 0;
+    var prev = nav.length > 1 ? +nav[nav.length - 2][1] : last;
+    var dp = last - prev, dpc = prev ? dp / prev : 0;
+    var holds = (d.holds || []).map(function (h) {
+      return cname(h.code) + ' ' + h.qty + '股 @' + h.px + ' · ' + dsh(h.date).slice(5);
+    }).join(' · ') || '空仓';
+    return '<div class="card offc"><div class="chd"><span class="bar gold"></span>' +
+      '<h2>官方真值 · 买地球 /22753</h2><span class="rt">' + esc(d.sync || '') + '</span></div>' +
+      '<div class="offv num">' + money(last) + '<small>元</small></div>' +
+      '<div class="offk">' +
+      '<div><span>今日</span><b class="num ' + cls(dp) + '">' + (dp >= 0 ? '+' : '') + money(dp) + ' <i class="pp ' + cls(dpc) + '">' + spct(dpc) + '</i></b></div>' +
+      '<div><span>累计</span><b class="num ' + cls(sm.total) + '">' + spct(sm.total) + '</b></div>' +
+      '<div><span>年化</span><b class="num ' + cls(sm.annual) + '">' + spct(sm.annual, 1) + '</b></div>' +
+      '<div><span>最大回撤</span><b class="num dn">' + pct(sm.mdd, 1) + '</b></div>' +
+      '</div>' +
+      '<div class="offh">持仓 <b>' + esc(holds) + '</b></div>' +
+      '<div class="offn">以上取自平台官方接口（净值 / 绩效 / 持仓）。下方「本地引擎」为按收盘价独立复算，' +
+      '用于策略逻辑验证；两者口径不同时以官方为准。</div></div>';
+  }
+
   function renderStrat(id) {
     var s = QE.STRATS[id], a = APP.accounts[id], m = metrics[id], lv = liveValue(id);
     var p = pend[id] || { actions: [], ranks: [] };
@@ -1065,9 +1162,15 @@
       (s.snapshot ? '<span class="st tk-' + (s.tagc || 'blue') + '">' + esc(s.tag) + '</span>' : '') +
       '<span class="rt">' + esc(s.time) + (s.exec === 'snapshot' ? ' · 快照' : '') + '</span></div>';
 
+    if (id === 'earth' && typeof SNAP !== 'undefined' && SNAP.s && SNAP.s.p22753) {
+      html += offCard('p22753', SNAP.s.p22753);
+    }
+
     if (s.snapshot) {
       var rk0 = (p && p.ranks && p.ranks.length) ? p.ranks : rankAt(id, s, a);
-      html += secBar('01', '今日', '该做什么 · 持仓要不要动');
+      html += secBar('01', id === 'earth' && typeof SNAP !== 'undefined' && SNAP.s && SNAP.s.p22753
+      ? '本地复算' : '今日',
+      id === 'earth' ? '收盘价口径独立复算 · 与官方信号对照' : '该做什么 · 持仓要不要动');
       html += snapHead(id, s, a, m);
       html += holdVerdict(id, s, rk0, a);
       html += secBar('02', '资产', '净值 · 持仓 · 日/月/年收益');
@@ -1132,7 +1235,9 @@
         '</div><div style="margin-top:8px;font-size:11.5px;color:var(--sub)">' + esc(reason) +
         ' · 下一时点 ' + md(nextRun(id)) + ' ' + s.time + '（' + cdText(nextRun(id)) + '）</div>';
     }
-    html += secBar('01', '今日', '该做什么 · 持仓要不要动');
+    html += secBar('01', id === 'earth' && typeof SNAP !== 'undefined' && SNAP.s && SNAP.s.p22753
+      ? '本地复算' : '今日',
+      id === 'earth' ? '收盘价口径独立复算 · 与官方信号对照' : '该做什么 · 持仓要不要动');
     html += '<div class="' + sigCls + '"><div class="chd"><span class="bar"></span><h2>今日信号</h2><span class="rt">' + s.time + '</span></div>' +
       '<div style="font-size:13px;font-weight:700;margin-bottom:6px">' + sigTitle + '</div>' + sigBody + '</div>';
 
@@ -1855,24 +1960,73 @@
     return (m >= 570 && m <= 690) || (m >= 780 && m <= 900);
   }
   function secOf(c) { return ((c.charAt(0) === '5' || c.charAt(0) === '6') ? 'sh' : 'sz') + c; }
-  function liveQuotes(codes, cb) {
-    if (!codes.length) { cb(null); return; }
+  /* 多源行情：腾讯 → 新浪 → 东财，任一源拿到即返回，防单源限速 */
+  function jsonp(src, charset, onload, onerr) {
     var s = document.createElement('script');
-    s.charset = 'gbk';
-    s.src = 'https://qt.gtimg.cn/q=' + codes.map(secOf).join(',') + '&_=' + Date.now();
-    s.onload = function () {
+    if (charset) s.charset = charset;
+    s.src = src;
+    s.onload = function () { try { onload(); } finally { s.parentNode && s.parentNode.removeChild(s); } };
+    s.onerror = function () { s.parentNode && s.parentNode.removeChild(s); onerr && onerr(); };
+    document.head.appendChild(s);
+    return s;
+  }
+  function qTencent(codes, cb) {
+    jsonp('https://qt.gtimg.cn/q=' + codes.map(secOf).join(',') + '&_=' + Date.now(), 'gbk', function () {
       var px = {};
       codes.forEach(function (c) {
         var v = window['v_' + secOf(c)];
         if (!v) return;
-        var a = String(v).split('~'), p = parseFloat(a[3]);
+        var p = parseFloat(String(v).split('~')[3]);
         if (p > 0) px[c] = p;
       });
-      s.parentNode && s.parentNode.removeChild(s);
-      cb(px);
+      cb(Object.keys(px).length ? px : null);
+    }, function () { cb(null); });
+  }
+  function qSina(codes, cb) {
+    jsonp('https://hq.sinajs.cn/rn=' + Date.now() + '&list=' + codes.map(secOf).join(','), 'gbk', function () {
+      var px = {};
+      codes.forEach(function (c) {
+        var v = window['hq_str_' + secOf(c)];
+        if (!v) return;
+        var a = String(v).split(',');
+        var p = parseFloat(a[3]);
+        if (p > 0) px[c] = p;
+      });
+      cb(Object.keys(px).length ? px : null);
+    }, function () { cb(null); });
+  }
+  function qEast(codes, cb) {
+    var cbName = 'emq_' + Math.floor(Math.random() * 1e6);
+    window[cbName] = function (j) {
+      var px = {};
+      try {
+        ((j && j.data && j.data.diff) || []).forEach(function (o) {
+          var code = String(o.f12 || ''), p = +o.f2;
+          if (code && p > 0) px[code] = p;
+        });
+      } catch (e) {}
+      try { delete window[cbName]; } catch (e) {}
+      cb(Object.keys(px).length ? px : null);
     };
-    s.onerror = function () { s.parentNode && s.parentNode.removeChild(s); cb(null); };
-    document.head.appendChild(s);
+    var secids = codes.map(function (c) { return (c.charAt(0) === '5' || c.charAt(0) === '6' ? '1.' : '0.') + c; }).join(',');
+    jsonp('https://push2.eastmoney.com/api/qt/ulist.np/get?cb=' + cbName + '&secids=' + secids + '&fields=f2,f12&_=' + Date.now(), null,
+      function () {}, function () { cb(null); });
+  }
+  function liveQuotes(codes, cb) {
+    if (!codes.length) { cb(null); return; }
+    var srcs = [qTencent, qSina, qEast], i = 0;
+    function step() {
+      if (i >= srcs.length) { cb(null); return; }
+      var fn = srcs[i++];
+      var done = false;
+      var to = setTimeout(function () { if (!done) { done = true; step(); } }, 6000);
+      fn(codes, function (px) {
+        if (done) return;
+        done = true; clearTimeout(to);
+        if (px && Object.keys(px).length) cb(px); else step();
+      });
+    }
+    step();
   }
   function intradaySync() {
     if (!isTradingNow() || typeof SNAP === 'undefined' || !SNAP.s) return;
@@ -1911,7 +2065,7 @@
 
   /* 运行时同步平台官方真值（CORS 已放开）。失败静默回落本地快照 */
   function liveSync() {
-    var ids = ['13429', '96242'], jobs = [], MP = {
+    var ids = ['13429', '96242', '26867', '96070', '95204', '22753'], jobs = [], MP = {
       total_return: 'total', annualized_return: 'annual', volatility: 'vol',
       sharpe_ratio: 'sharpe', calmar_ratio: 'calmar', max_drawdown: 'mdd',
       win_rate: 'win', total_trades: 'trades'
