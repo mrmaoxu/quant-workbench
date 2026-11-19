@@ -1,0 +1,14 @@
+{
+  "name": "三策略量化工作台",
+  "short_name": "量化工作台",
+  "description": "ETF动量轮动 · 田先生买地球 · 低频轮动，三套策略自动记账与调仓提醒",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#080b11",
+  "theme_color": "#080b11",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
