@@ -18,7 +18,7 @@ echo   Phone : http://LAN-IP:8765/   same WiFi only
 echo   Stop  : close the QuantServer window
 echo.
 echo Starting server, waiting for port 8765 ...
-start "QuantServer" /min python -m http.server 8765 --bind 0.0.0.0 --directory "%~dp0workbench-v2"
+start "QuantServer" /min python "%~dp0workbench-v2\serve.py" 8765
 set /a n=0
 :waitport
 timeout /t 1 >nul

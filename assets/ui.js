@@ -977,7 +977,7 @@
       : '';
     var foot, footCls = 'dim';
     if (s.snapshot) {
-      foot = (snap && snap.sync ? '官方 · ' + snap.sync : '官方真值') + (snap && snap.intraday ? ' · 盘中估算' : '');
+      foot = (snap && snap.sync ? '官方 · ' + snap.sync : '官方真值') + (snap && snap.intraday ? ' · 官方实时' : '');
       footCls = 'gold';
     } else if (id === 'earth' && eo && eo.holds && eo.holds.length) {
       var h0 = eo.holds[0];
@@ -2029,53 +2029,47 @@
     step();
   }
   function intradaySync() {
-    if (!isTradingNow() || typeof SNAP === 'undefined' || !SNAP.s) return;
-    var codes = {}, any = false;
+    if (typeof SNAP === 'undefined' || !SNAP.s) return;
+    if (!isTradingNow()) return;
+    var today = new Date();
+    var tk = '' + today.getFullYear() + ('0' + (today.getMonth() + 1)).slice(-2) + ('0' + today.getDate()).slice(-2);
+    var missing = false;
     SNAP_ORDER.forEach(function (k) {
       var d = SNAP.s[k];
-      if (!d || !d.holds) return;
-      d.holds.forEach(function (h) { codes[h.code] = 1; any = true; });
+      if (d && d.holds && d.holds.length && d.nav && d.nav.length &&
+          String(d.nav[d.nav.length - 1][0]) !== tk) missing = true;
     });
-    if (!any) return;
-    liveQuotes(Object.keys(codes), function (px) {
-      if (!px) return;
-      var today = new Date(), tk = '' + today.getFullYear() + ('0' + (today.getMonth() + 1)).slice(-2) + ('0' + today.getDate()).slice(-2);
-      SNAP_ORDER.forEach(function (k) {
-        var d = SNAP.s[k], a = APP.accounts[k];
-        if (!d || !d.nav || !d.nav.length || !d.holds || !d.holds.length || !a) return;
-        var mv = 0, miss = false;
-        d.holds.forEach(function (h) {
-          var p = px[h.code];
-          if (!(p > 0)) { miss = true; return; }
-          mv += h.qty * p;
-        });
-        if (miss || !(a.cash >= 0)) return;
-        var est = Math.round((a.cash + mv) * 100) / 100;
-        var last = d.nav[d.nav.length - 1];
-        if (String(last[0]) === tk) { last[1] = est; }
-        else { d.nav.push([tk, est]); }
-        var hh = today.getHours(), mm = today.getMinutes();
-        d.sync = '盘中估算 ' + ('0' + hh).slice(-2) + ':' + ('0' + mm).slice(-2);
-        d.intraday = true;
-      });
-      try { injectSnap(); } catch (e) {}
-      renderAll();
-    });
+    /* 官方接口尚未给出今日净值时，拉一次官方（绝不本地估算硬凑） */
+    if (missing) { try { liveSync(true); } catch (e) {} }
   }
 
   /* 运行时同步平台官方真值（CORS 已放开）。失败静默回落本地快照 */
-  function liveSync() {
-    var ids = ['13429', '96242', '26867', '96070', '95204', '22753'], jobs = [], MP = {
+  function liveSync(silent) {
+    var IDS = [
+      ['13429', 'p13429'], ['96242', 'p96242'], ['26867', 'p96563'],
+      ['96070', 'p96560'], ['95204', 'p96561'], ['22753', 'p22753']
+    ], jobs = [], MP = {
       total_return: 'total', annualized_return: 'annual', volatility: 'vol',
       sharpe_ratio: 'sharpe', calmar_ratio: 'calmar', max_drawdown: 'mdd',
       win_rate: 'win', total_trades: 'trades'
     };
-    ids.forEach(function (id) {
-      jobs.push(fetch('https://www.cifangquant.com/api/etf/strategy/' + id + '/info', { cache: 'no-store' })
+    IDS.forEach(function (pair) {
+      var id = pair[0], key = pair[1];
+      var direct = function () {
+        return fetch('https://www.cifangquant.com/api/etf/strategy/' + id + '/info', { cache: 'no-store' });
+      };
+      var viaProxy = function () {
+        if (location.protocol !== 'http:' && location.protocol !== 'https:') return Promise.reject(new Error('no proxy'));
+        return fetch('/api/off/' + id, { cache: 'no-store' }).then(function (r) {
+          if (!r.ok) throw new Error('proxy ' + r.status);
+          return r;
+        });
+      };
+      jobs.push(viaProxy().catch(direct)
         .then(function (r) { return r.json(); })
         .then(function (j) {
           var d = j.data || {};
-          var s = (typeof SNAP !== 'undefined' && SNAP.s) ? SNAP.s['p' + id] : null;
+          var s = (typeof SNAP !== 'undefined' && SNAP.s) ? SNAP.s[key] : null;
           if (!s) return false;
           var navs = [], i, x;
           for (i = 0; i < (d.daily_pnl || []).length; i++) {
@@ -2100,6 +2094,7 @@
           if (m.trades != null) m.trades = Math.round(m.trades);
           if (Object.keys(m).length) s.metrics = m;
           s.sync = '在线 ' + new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
+          s.intraday = false;
           return true;
         })
         .catch(function () { return false; }));
@@ -2107,12 +2102,11 @@
     return Promise.all(jobs).then(function (res) {
       var any = false;
       res.forEach(function (x) { if (x) any = true; });
-      if (!any) { toast('官方接口暂不可达，继续用本地快照'); return; }
+      if (!any) { if (!silent) toast('官方接口暂不可达，继续用本地快照'); return; }
       try { runAll(); } catch (e) {}
       try { injectSnap(); } catch (e) {}
       renderAll();
-      toast('已同步平台官方当日数据');
-      setTimeout(function () { try { intradaySync(); } catch (e) {} }, 400);
+      if (!silent) toast('已同步平台官方当日数据');
     });
   }
 
@@ -2405,7 +2399,7 @@
     if (h) window.__QW_H = h;
     boot();
     setTimeout(function () { try { liveSync(); } catch (e) {} }, 900);
-    setInterval(function () { try { intradaySync(); } catch (e) {} }, 30000);
+    setInterval(function () { try { liveSync(true); } catch (e) {} try { intradaySync(); } catch (e) {} }, 30000);
   });
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     // 兜底：若 DOMContentLoaded 已过
