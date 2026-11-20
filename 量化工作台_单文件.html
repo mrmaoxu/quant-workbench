@@ -3329,7 +3329,21 @@ window.HIST={"cal":["2020-01-02","2020-01-03","2020-01-06","2020-01-07","2020-01
       '<div style="opacity:.62;margin-top:3px">依据本策略自身参数：' + rule +
       ' · 阈值 ' + (mom.m1lo != null ? mom.m1lo : 0) + '~' + (mom.m1hi != null ? mom.m1hi : 0) +
       ' · TOP' + topN + (cfg.minHold ? ' · 最短持有 ' + cfg.minHold + ' 日' : '') +
-      (id === 'momentum' ? ' · GS/乖离剔除后递补 · 股数以目标组合为准' : '') + '</div></div>';
+      (id === 'momentum' ? ' · GS/乖离剔除后递补 · 股数以目标组合为准' : '') + '</div>' +
+      (id === 'earth' ? earthOffNote() : '') + '</div>';
+  }
+
+  /* 买地球：本地模拟账本 vs 官方实盘持仓对照（官方 ID 22753） */
+  function earthOffNote() {
+    var h = (window.SNAP && SNAP.s && SNAP.s.p22753) ? SNAP.s.p22753.holds : null;
+    if (!h || !h.length) return '';
+    var t = h.map(function (x) {
+      var d = String(x.date || '');
+      return cname(x.code) + ' ' + x.qty + ' 股 @' + x.px +
+        (d.length === 8 ? '（' + d.slice(4, 6) + '-' + d.slice(6) + ' 换入）' : '');
+    }).join('、');
+    return '<div style="opacity:.82;margin-top:3px;color:var(--sub)">官方实盘当前持 <b>' + esc(t) +
+      '</b>｜本地模拟账本与官方独立（池/参数/执行时点不同），差异仅供逻辑验证，<b>以官方为准</b></div>';
   }
 
   /* 平台实测口径：回归矩用 w²、R² 用 w（与标准 polyfit 版相差可达 39%） */
@@ -3514,10 +3528,12 @@ window.HIST={"cal":["2020-01-02","2020-01-03","2020-01-06","2020-01-07","2020-01
   /* ---------- 平台快照策略：调仓记录 ---------- */
   function snapTrades(id, a) {
     var all = a.trades || [];
+    var OFFID = { p13429: '13429', p96242: '96242', p96563: '26867',
+                  p96560: '96070', p96561: '95204', p22753: '22753' }[id] || '';
     if (!all.length) {
       return '<div class="card tight"><div class="chd"><span class="bar"></span><h2>调仓记录</h2>' +
-        '<span class="rt">平台未开放</span></div><div class="vnote">该策略在平台侧只开放净值与日盈亏接口，' +
-        '没有逐笔交割单。净值、日/月/年收益、持仓与排名均为官方真值，不做估算补齐。</div></div>';
+        '<span class="rt">平台未开放</span></div><div class="vnote">平台官方接口（ID ' + OFFID + '）只开放净值、' +
+        '日盈亏与当前持仓，没有逐笔交割单。净值、日/月/年收益、持仓与排名均为官方真值，不做估算补齐。</div></div>';
     }
     var PER = 15;
     var pages = Math.max(1, Math.ceil(all.length / PER));
@@ -3525,8 +3541,11 @@ window.HIST={"cal":["2020-01-02","2020-01-03","2020-01-06","2020-01-07","2020-01
     if (pg > pages) pg = pages;
     if (pg < 1) pg = 1;
     var rows = all.slice().reverse().slice((pg - 1) * PER, pg * PER);
-    var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>调仓记录</h2>' +
-      '<span class="rt">共 ' + all.length + ' 笔 · 第 ' + pg + '/' + pages + ' 页</span></div>' +
+    var lastD = (all[all.length - 1] || {}).d || '';
+    var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>调仓记录 · 回测副本</h2>' +
+      '<span class="rt">共 ' + all.length + ' 笔 · 第 ' + pg + '/' + pages + ' 页 · 截止 ' + lastD.slice(2) + '</span></div>' +
+      '<div class="vnote">以下是 <b>本地回测副本 ' + id.slice(1) + '</b> 的逐笔流水；平台运行实例（官方 ID ' + OFFID + '）的成交明细未开放。' +
+      '两者不是同一账户，持仓与调仓日可能不同——真实持仓以顶部「官方口径」为准。</div>' +
       '<div class="tw"><table class="rt4"><thead><tr>' +
       '<th>日期</th><th>方向</th><th>标的</th><th>价格</th><th>股数</th><th>金额</th></tr></thead><tbody>';
     rows.forEach(function (t) {
