@@ -1792,6 +1792,9 @@
         : (r.pass ? (i === 0 ? '<span class="badge top">TOP1</span>' : '<span class="badge cand">候选</span>')
           : '<span class="badge off">' + esc((r.filters && r.filters.length) ? r.filters[0]
             : (r.score == null ? '数据不足' : (isPct ? '区间外' : '阈值外'))) + '</span>');
+      if (d.cfg && d.cfg.fallback && String(d.cfg.fallback) === String(r.code) && !r.held) {
+        badge = '<span class="badge cand">兜底</span>';
+      }
       var mv = (r.score == null) ? '--' : (isPct ? spct(r.score) : num(r.score, 3));
       html += '<tr' + (r.held ? ' class="hrow"' : '') + '><td>' + (i + 1) + '</td>' +
         '<td><span class="nm">' + esc(r.n) + '</span><i class="sub15">' + r.code + '</i></td>' +

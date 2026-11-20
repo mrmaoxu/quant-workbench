@@ -12,6 +12,7 @@ MAP = {
     'p96563': '26867',   # 七龙珠v2
     'p96560': '96070',   # 银行等股灾
     'p96561': '95204',   # 大类资产对冲组合轮动-V2
+    'p22753': '22753',   # momo要买地球2点30版本（买地球官方对照）
 }
 NOW = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
 
@@ -44,13 +45,17 @@ def build(sid):
         if v is not None:
             m[out] = abs(v) if out == 'mdd' else (round(v) if out == 'trades' else v)
     st = d.get('strategy_setting') or {}
+    pool = list(st.get('etf_pool') or [])
+    fb = str(st.get('fallback_etf') or '0')
+    if fb and fb != '0' and fb not in pool:
+        pool.append(fb)          # 兜底标的也入排名表，页面标注「兜底」
     o = {
         'official': True, 'nav': nav, 'holds': holds, 'metrics': m,
         'start': nav[0][0] if nav else None, 'sync': NOW,
         'name': d.get('strategy_name'),
         'sub': '平台官方接口 · 净值/绩效/持仓直取（/%s）' % sid,
         'note': '收益、净值、持仓、绩效取自平台官方接口，未经本地重算；排名与换仓信号按官方参数本地复算。',
-        'pool': st.get('etf_pool'),
+        'pool': pool,
         'init': st.get('initial_capital'),
         'mom': {'type': 'wslope', 'm1': st.get('momentum_period'),
                 'm2': None, 'm1lo': st.get('momentum_threshold'),
@@ -84,7 +89,7 @@ def main():
     js = '/* 官方同步（%s）：/api/etf/strategy/{id}/info 真值 + 官方参数，不做本地重算 */\n' % NOW
     js += '(function(){var S=window.SNAP&&window.SNAP.s;if(!S)return;var D='
     js += json.dumps(out, ensure_ascii=False, separators=(',', ':'))
-    js += ';for(var k in D){var t=S[k];if(!t)continue;var s=D[k];'
+    js += ';for(var k in D){var t=S[k];if(!t){t=S[k]={name:D[k].name};}var s=D[k];'
     js += 'if(s.nav&&s.nav.length)t.nav=s.nav;if(s.holds)t.holds=s.holds;if(s.metrics)t.metrics=s.metrics;'
     js += 'if(s.pool&&s.pool.length)t.pool=s.pool;if(s.mom)t.mom=s.mom;if(s.cfg)t.cfg=s.cfg;'
     js += 'if(s.init)t.init=s.init;if(s.start)t.start=s.start;'
