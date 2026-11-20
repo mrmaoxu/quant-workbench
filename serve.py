@@ -64,5 +64,10 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    print('Quant Workbench -> http://127.0.0.1:%d/' % port)
-    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
+    try:
+        srv = ThreadingHTTPServer(('0.0.0.0', port), Handler)
+    except OSError:
+        sys.exit(0)          # 端口已被占用：已在后台运行，静默退出
+    if sys.stdout:
+        print('Quant Workbench -> http://127.0.0.1:%d/' % port)
+    srv.serve_forever()
