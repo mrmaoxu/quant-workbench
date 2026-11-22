@@ -551,6 +551,12 @@ border-radius:9px;padding:8px 10px;line-height:1.6;margin:8px 0 0}
 .labtbl th:nth-child(3){text-align:left}
 .labtbl td:nth-child(4),.labtbl th:nth-child(4){text-align:right}
 
+.labtbl{table-layout:fixed}
+.labtbl th:nth-child(1),.labtbl td:nth-child(1){width:52px}
+.labtbl th:nth-child(2),.labtbl td:nth-child(2){width:82px}
+.labtbl th:nth-child(4),.labtbl td:nth-child(4){width:96px}
+.labtbl th:nth-child(5),.labtbl td:nth-child(5){width:60px}
+
 </style>
 </head>
 <body>
@@ -939,10 +945,10 @@ window.LABVIEW = (function () {
       momentum_calculation_type: m.k, momentum_period: +st.n, etf_pool: st.pool.slice(),
       end_date: dt[0], end_time: (dt[1] ? dt[1] + ':00' : st.time + ':00')
     };
-    var fallback = function (msg) {
+    var fallback = function () {
       st.busy = false; st.src = '本地复算';
       st.res = localCompute();
-      if (msg) st.err = msg;
+      st.err = '';
       paint();
     };
     if (location.protocol.indexOf('http') !== 0) return fallback('');
@@ -5110,5 +5116,6 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
 </script>
 </body>
 </html>
+
 
 

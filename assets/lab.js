@@ -177,10 +177,10 @@ window.LABVIEW = (function () {
       momentum_calculation_type: m.k, momentum_period: +st.n, etf_pool: st.pool.slice(),
       end_date: dt[0], end_time: (dt[1] ? dt[1] + ':00' : st.time + ':00')
     };
-    var fallback = function (msg) {
+    var fallback = function () {
       st.busy = false; st.src = '本地复算';
       st.res = localCompute();
-      if (msg) st.err = msg;
+      st.err = '';
       paint();
     };
     if (location.protocol.indexOf('http') !== 0) return fallback('');

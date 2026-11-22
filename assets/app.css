@@ -537,3 +537,9 @@ border-radius:9px;padding:8px 10px;line-height:1.6;margin:8px 0 0}
 .labtbl td:nth-child(3){text-align:left}
 .labtbl th:nth-child(3){text-align:left}
 .labtbl td:nth-child(4),.labtbl th:nth-child(4){text-align:right}
+
+.labtbl{table-layout:fixed}
+.labtbl th:nth-child(1),.labtbl td:nth-child(1){width:52px}
+.labtbl th:nth-child(2),.labtbl td:nth-child(2){width:82px}
+.labtbl th:nth-child(4),.labtbl td:nth-child(4){width:96px}
+.labtbl th:nth-child(5),.labtbl td:nth-child(5){width:60px}
