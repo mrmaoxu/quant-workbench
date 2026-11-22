@@ -73,12 +73,12 @@ window.LABVIEW = (function () {
     var rows = st.res.rows || [];
     return '<div class="labres"><div class="labreshead">计算结果 · 动量类型：' + esc(st.res.label || method().n) +
       ' ｜ 计算周期：' + st.res.n + ' 天 <span class="labsrc">' + esc(st.src) + '</span></div>' +
-      '<div class="tablewrap"><table class="tbl labtbl"><thead><tr><th>排名</th><th>代码</th><th>名称</th><th>动量值</th><th>操作</th></tr></thead><tbody>' +
+      '<div class="labresgrid"><div class="labrow labhead"><span>排名</span><span>代码</span><span>名称</span><span class="r">动量值</span><span class="c">操作</span></div>' +
       rows.map(function (r, i) {
-        return '<tr><td class="num">' + (i + 1) + '</td><td class="num">' + r.c + '</td><td>' + esc(r.n) + '</td>' +
-          '<td class="num ' + (r.v >= 0 ? 'up' : 'dn') + '"><b>' + (r.v == null ? '—' : r.v.toFixed(4)) + '</b></td>' +
-          '<td><button class="lnk" data-act="detail" data-i="' + i + '">详情</button></td></tr>';
-      }).join('') + '</tbody></table></div></div>';
+        return '<div class="labrow"><span class="num">' + (i + 1) + '</span><span class="num">' + r.c + '</span><span class="labnm">' + esc(r.n) + '</span>' +
+          '<span class="r num ' + (r.v >= 0 ? 'up' : 'dn') + '"><b>' + (r.v == null ? '—' : r.v.toFixed(4)) + '</b></span>' +
+          '<span class="c"><button class="lnk" data-act="detail" data-i="' + i + '">详情</button></span></div>';
+      }).join('') + '</div></div>';
   }
 
   function modalHTML() { return '<div class="labmask" id="labMask"><div class="labmodal"><div class="labmhd"><span id="labMTitle">计算过程</span><button data-act="close">×</button></div><div class="labmbody" id="labMBody"></div></div></div>'; }

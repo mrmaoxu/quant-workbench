@@ -549,3 +549,16 @@ border-radius:9px;padding:8px 10px;line-height:1.6;margin:8px 0 0}
 .labtbl th:nth-child(3),.labtbl td:nth-child(3){width:32%}
 .labtbl th:nth-child(4),.labtbl td:nth-child(4){width:13%}
 .labtbl th:nth-child(5),.labtbl td:nth-child(5){width:8%}
+
+.labgrid{margin-top:6px}
+.labrow{display:grid;grid-template-columns:44px 86px 1fr 104px 56px;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed rgba(255,255,255,.06);font-size:12.5px}
+.labrow:last-child{border-bottom:0}
+.labrow.labhead{color:var(--sub);font-size:11px;font-weight:600;border-bottom:1px solid var(--line)}
+.labnm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt)}
+.labrow .r{text-align:right}
+.labrow .c{text-align:center}
+
+.labgrid{display:block}
+
+.labgrid{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:8px}
+.labresgrid{display:block}

@@ -563,6 +563,19 @@ border-radius:9px;padding:8px 10px;line-height:1.6;margin:8px 0 0}
 .labtbl th:nth-child(4),.labtbl td:nth-child(4){width:13%}
 .labtbl th:nth-child(5),.labtbl td:nth-child(5){width:8%}
 
+.labgrid{margin-top:6px}
+.labrow{display:grid;grid-template-columns:44px 86px 1fr 104px 56px;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed rgba(255,255,255,.06);font-size:12.5px}
+.labrow:last-child{border-bottom:0}
+.labrow.labhead{color:var(--sub);font-size:11px;font-weight:600;border-bottom:1px solid var(--line)}
+.labnm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt)}
+.labrow .r{text-align:right}
+.labrow .c{text-align:center}
+
+.labgrid{display:block}
+
+.labgrid{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:8px}
+.labresgrid{display:block}
+
 </style>
 </head>
 <body>
@@ -847,12 +860,12 @@ window.LABVIEW = (function () {
     var rows = st.res.rows || [];
     return '<div class="labres"><div class="labreshead">计算结果 · 动量类型：' + esc(st.res.label || method().n) +
       ' ｜ 计算周期：' + st.res.n + ' 天 <span class="labsrc">' + esc(st.src) + '</span></div>' +
-      '<div class="tablewrap"><table class="tbl labtbl"><thead><tr><th>排名</th><th>代码</th><th>名称</th><th>动量值</th><th>操作</th></tr></thead><tbody>' +
+      '<div class="labresgrid"><div class="labrow labhead"><span>排名</span><span>代码</span><span>名称</span><span class="r">动量值</span><span class="c">操作</span></div>' +
       rows.map(function (r, i) {
-        return '<tr><td class="num">' + (i + 1) + '</td><td class="num">' + r.c + '</td><td>' + esc(r.n) + '</td>' +
-          '<td class="num ' + (r.v >= 0 ? 'up' : 'dn') + '"><b>' + (r.v == null ? '—' : r.v.toFixed(4)) + '</b></td>' +
-          '<td><button class="lnk" data-act="detail" data-i="' + i + '">详情</button></td></tr>';
-      }).join('') + '</tbody></table></div></div>';
+        return '<div class="labrow"><span class="num">' + (i + 1) + '</span><span class="num">' + r.c + '</span><span class="labnm">' + esc(r.n) + '</span>' +
+          '<span class="r num ' + (r.v >= 0 ? 'up' : 'dn') + '"><b>' + (r.v == null ? '—' : r.v.toFixed(4)) + '</b></span>' +
+          '<span class="c"><button class="lnk" data-act="detail" data-i="' + i + '">详情</button></span></div>';
+      }).join('') + '</div></div>';
   }
 
   function modalHTML() { return '<div class="labmask" id="labMask"><div class="labmodal"><div class="labmhd"><span id="labMTitle">计算过程</span><button data-act="close">×</button></div><div class="labmbody" id="labMBody"></div></div></div>'; }
@@ -5122,6 +5135,7 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
 </script>
 </body>
 </html>
+
 
 
 
