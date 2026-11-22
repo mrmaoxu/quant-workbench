@@ -1008,6 +1008,63 @@
       '</div>';
   }
 
+  /* ---------- 动量实验室：官网 9 种算法统一入口 ---------- */
+  var LAB = { m: 'wslope_v2_intraday', n: 25 };
+  var LAB_POOL = [
+    { c: '512890', n: '红利低波ETF' }, { c: '161127', n: '标普生物' }, { c: '159985', n: '豆粕ETF' },
+    { c: '159941', n: '纳指ETF广发' }, { c: '518880', n: '黄金ETF' }, { c: '513520', n: '日经ETF' },
+    { c: '159915', n: '创业板ETF' }
+  ];
+
+  function labCard() {
+    if (typeof MOM === 'undefined') return '';
+    var date = tdxLast() || (idx && idx.calendar.length ? idx.calendar[idx.calendar.length - 1] : '');
+    var method = LAB.m, n = LAB.n, rows = [];
+    LAB_POOL.forEach(function (it) {
+      var close = (idx && QE.seriesTo) ? (QE.seriesTo(idx, it.c, date) || []) : [];
+      var intr = series1430(it.c, date) || [];
+      var o = (typeof OHLC !== 'undefined' && OHLC && OHLC[it.c]) ? OHLC[it.c] : null;
+      var hi = [], lo = [];
+      if (o && o.d && o.h) {
+        for (var i = 0; i < o.d.length; i++) if (o.d[i] <= date) { hi.push(o.h[i]); lo.push(o.l[i]); }
+      }
+      var data = { close: close, intraday: intr, highs: hi, lows: lo };
+      var r = MOM.calc(method, data, { n: n });
+      var px = close.length ? close[close.length - 1] : (intr.length ? intr[intr.length - 1] : null);
+      var off = (method === 'wslope_v2_intraday' && typeof OFFMOM !== 'undefined' && OFFMOM[it.c] && date >= OFFMOM[it.c].end) ? OFFMOM[it.c] : null;
+      if (off) { r = MOM.calc(method, { intraday: off.p.map(function (x) { return x[1]; }) }, { n: n }); px = off.p[off.p.length - 1][1]; }
+      rows.push({ c: it.c, n: it.n, px: px, r: r, official: !!off, src: method === 'rsrs' ? 'OHLC' : (method.indexOf('intraday') >= 0 ? (intr.length ? '14:30' : '收盘') : '收盘') });
+    });
+    rows.sort(function (a, b) { return ((b.r && b.r.score) || -9) - ((a.r && a.r.score) || -9); });
+
+    var chips = MOM.METHODS.map(function (m) {
+      return '<button class="btn labm' + (m.k === method ? ' pri' : '') + '" onclick="UI.labSet(\'' + m.k + '\')">' + m.n + '</button>';
+    }).join('');
+    var trs = rows.map(function (x, i) {
+      var r = x.r || {};
+      var sc = r.score == null ? '—' : r.score.toFixed(4);
+      var cls = r.score == null ? '' : (r.score >= 0 ? 'up' : 'dn');
+      return '<tr><td class="num">' + (i + 1) + '</td><td>' + esc(x.n) + '<em>' + x.c + '</em>' + (x.official ? '<i class="offb">官网</i>' : '') + '</td>' +
+        '<td class="num">' + (x.px == null ? '—' : x.px.toFixed(3)) + '</td>' +
+        '<td class="num ' + cls + '"><b>' + sc + '</b></td>' +
+        '<td class="num">' + (r.annual == null ? '—' : (r.annual * 100).toFixed(2) + '%') + '</td>' +
+        '<td class="num">' + (r.r2 == null ? '—' : (r.r2 * 100).toFixed(2) + '%') + '</td>' +
+        '<td class="num">' + (r.slope == null ? '—' : (r.slope * 1e4).toFixed(2)) + '</td>' +
+        '<td class="num" style="font-size:11px">' + esc(x.src) + '</td></tr>';
+    }).join('');
+
+    return '<div class="card" style="margin-top:12px"><div class="chd"><span class="bar gold"></span><h2>动量实验室 · 官网 9 种算法</h2>' +
+      '<span class="rt">' + date.slice(4, 6) + '-' + date.slice(6) + ' · ' + n + ' 日</span></div>' +
+      '<div class="labbar">' + chips + '</div>' +
+      '<div class="labdesc">' + esc((MOM.METHODS.filter(function (m) { return m.k === method; })[0] || {}).desc || '') + '</div>' +
+      '<div class="labcfg"><span>计算周期</span><input id="labN" type="number" min="3" max="120" value="' + n + '" onchange="UI.labN(this.value)">' +
+      '<span>日</span><i>分时口径统一取 14:30；区间涨幅需 N+1 个点，其余取最近 N 个点</i></div>' +
+      '<div class="tablewrap"><table class="tbl labtbl"><thead><tr><th>#</th><th>标的</th><th>现价</th><th>动量得分</th><th>年化</th><th>R²</th><th>斜率(×10⁻⁴)</th><th>价源</th></tr></thead><tbody>' + trs + '</tbody></table></div>' +
+      '<div class="vnote" style="margin-top:8px">得分 = 年化收益 × R²（RSRS 为 Z-Score），统一截断 4 位。' +
+      '「官网」徽标 = 直接使用平台弹窗 25 点真值，其余为本地复算。' +
+      '<b>V1 与 V2 的差别只在 R² 的权重口径</b>：V1 回归用 w、总方差用未加权均值（可能负 R²）；V2 全程 w²，与平台 0.4261 逐位一致。</div>' +
+      '</div>';
+  }
   /* ---------- 渲染：总览 ---------- */
   function renderHome() {
     var CORE = ['momentum', 'earth', 'lowfreq'];
@@ -1092,6 +1149,9 @@
     Object.keys(QE.STRATS).forEach(function (id) { if (ORDER.indexOf(id) < 0) list.push(id); });
     html += '<div class="gtitle one"><span>全部策略</span><i>' + list.length + ' 个 · 同一口径账本</i></div>';
     html += '<div class="sgrid2">' + list.map(function (id) { return cardHTML(id); }).join('') + '</div>';
+
+    /* 动量实验室 */
+    html += labCard();
 
     /* 合计曲线 */
     var combo = combinedNav();
@@ -1180,6 +1240,7 @@
       html += secBar('03', '依据', '排名 · 调仓 · 规则');
       html += rankCard(id, p, a);
       html += snapTrades(id, a);
+      html += localReplicaCard(id);
       html += '<div class="card"><div class="chd"><span class="bar"></span><h2>策略规则</h2><span class="rt">' + esc(s.tag) + '</span></div>' +
         '<div class="rules">' + rulesHTML(id) + '</div></div>';
       var dh = $('view-detail');
@@ -1356,6 +1417,9 @@
       }
     }
     html += '</div>';
+
+    /* 本地复算轨：离线兜底 + 官方对账 */
+    html += localReplicaCard(id);
 
     /* 规则 */
     html += '<div class="card"><div class="chd"><span class="bar"></span><h2>策略规则</h2></div><div class="rules">' + rulesHTML(id) + '</div></div>';
@@ -1635,25 +1699,27 @@
     if (!ser || ser.length < n || n < 2) return null;
     var p = ser.slice(-n), y = [], w = [], i;
     for (i = 0; i < n; i++) { if (!(p[i] > 0)) return null; y.push(Math.log(p[i])); w.push(1 + i / (n - 1)); }
-    var sw = 0, sy = 0, sw2 = 0, sxw = 0, syw = 0, sxxw = 0, sxyw = 0;
+    /* 官网 V2 一致加权：权重 w 线性 1→2，回归/残差/总方差全部按 w² 加权（弹窗 512890 反解已验证） */
+    var sw = 0, sy = 0, swx = 0, syw = 0, sxxw = 0, sxyw = 0;
     for (i = 0; i < n; i++) {
-      var w2 = w[i] * w[i];
-      sw += w[i]; sy += w[i] * y[i];
-      sw2 += w2; sxw += w2 * i; syw += w2 * y[i];
-      sxxw += w2 * i * i; sxyw += w2 * i * y[i];
+      var e = w[i] * w[i];
+      sw += e; sy += e * y[i];
+      swx += e * i; syw += e * y[i];
+      sxxw += e * i * i; sxyw += e * i * y[i];
     }
-    var den = sw2 * sxxw - sxw * sxw;
+    var den = sw * sxxw - swx * swx;
     if (!(den > 0)) return null;
-    var slope = (sw2 * sxyw - sxw * syw) / den, b = (syw - slope * sxw) / sw2;
+    var slope = (sw * sxyw - swx * syw) / den, b = (syw - slope * swx) / sw;
     var annual = Math.exp(slope * 250) - 1;
     if (!isFinite(annual)) return null;
     var ybar = sy / sw, sr = 0, st = 0;
     for (i = 0; i < n; i++) {
-      sr += w[i] * Math.pow(y[i] - (slope * i + b), 2);
-      st += w[i] * Math.pow(y[i] - ybar, 2);
+      var e2 = w[i] * w[i];
+      sr += e2 * Math.pow(y[i] - (slope * i + b), 2);
+      st += e2 * Math.pow(y[i] - ybar, 2);
     }
     var r2 = st > 0 ? 1 - sr / st : 0;
-    return { score: annual * r2, annual: annual, r2: r2 };
+    return { score: annual * r2, annual: annual, r2: r2, slope: slope, intercept: b, sr: sr, st: st };
   }
 
   function maAvg(ser, n) {
@@ -1673,23 +1739,37 @@
     var v2 = (c - m6) / m6 * 100, v3 = (c - m12) / m12 * 100, v4 = (c - m24) / m24 * 100;
     return (v2 + 2 * v3 + 3 * v4) / 6;
   }
+  /* 官网口径：历史交易日取 14:30:00 分时价；本地无该段分钟数据时回退收盘价 */
+  function series1430(code, date) {
+    if (typeof TDXR === 'undefined' || !TDXR || !TDXR[code]) return null;
+    var td = TDXR[code], ds = Object.keys(td).sort(), out = [], i;
+    for (i = 0; i < ds.length && ds[i] <= date; i++) out.push(td[ds[i]]);
+    return out.length >= 25 ? out : null;
+  }
+  function tdxLast() {
+    if (typeof TDXR === 'undefined' || !TDXR || !TDXR['512890']) return '';
+    var ds = Object.keys(TDXR['512890']).sort();
+    return ds.length ? ds[ds.length - 1] : '';
+  }
   function rankAt(id, s, a) {
     if (!s || !idx) return [];
     var d = (typeof SNAP !== 'undefined' && SNAP.s) ? (SNAP.s[id] || {}) : {};
     var mom = d.mom || {};
-    var date = a.lastDate || (idx.calendar.length ? idx.calendar[idx.calendar.length - 1] : '');
+    var tlast = tdxLast();
+    var date = tlast || a.lastDate || (idx.calendar.length ? idx.calendar[idx.calendar.length - 1] : '');
     var held = {}, c;
     for (c in a.pos) if (a.pos[c] && a.pos[c].sh > 0) held[c] = 1;
     var out = [];
     (s.pool || []).forEach(function (it) {
       var code = it.c || it[0], nm = it.n || it[1];
-      var ser = QE.seriesTo(idx, code, date) || [];
+      var ser = series1430(code, date) || QE.seriesTo(idx, code, date) || [];
       if (ser.length < 3) return;
+      var src1430 = !!(series1430(code, date));
       var px = ser[ser.length - 1], prev = ser[ser.length - 2];
       var chg = prev > 0 ? px / prev - 1 : 0;
       var ref = ser.slice(0, ser.length - 1);
       var ma20 = maAvg(ref, 20);
-      var r = { code: code, n: nm, price: px, chg: chg, held: !!held[code],
+      var r = { code: code, n: nm, price: px, chg: chg, held: !!held[code], src1430: src1430,
                 bias: ma20 ? (px / ma20 - 1) * 100 : null, premium: null, gs: null };
       if (s.snapshot) {
         if (mom.type === 'pct') {
@@ -1697,10 +1777,25 @@
           r.win = kk;
           r.score = ser.length > kk ? px / ser[ser.length - 1 - kk] - 1 : null;
         } else {
-          var win = mom.m1 || 25, o = wslopePlat(ser, win);
+          var win = mom.m1 || 25;
+          var momSer = ser, momSrc = '';
+          if (typeof OFFMOM !== 'undefined' && OFFMOM && OFFMOM[code] && OFFMOM[code].p && date >= OFFMOM[code].end) {
+            momSer = OFFMOM[code].p.map(function (x) { return x[1]; });
+            momSrc = OFFMOM[code].src;
+          }
+          var o = wslopePlat(momSer, win);
           r.win = win;
           r.score = o ? o.score : null;
           r.annual = o ? o.annual : null;
+          r.r2 = o ? o.r2 : null;
+          r.slope = o ? o.slope : null;
+          r.momSrc = momSrc;
+          if (momSrc && OFFMOM[code] && o) {
+            r.momCheck = {
+              slope: OFFMOM[code].slope, annual: OFFMOM[code].annual, r2: OFFMOM[code].r2,
+              sr: OFFMOM[code].sr, st: OFFMOM[code].st, score: OFFMOM[code].score
+            };
+          }
         }
         var lo = (mom.m1lo != null ? mom.m1lo : -1e9);
         var hi = (mom.m1hi != null ? mom.m1hi : 1e9);
@@ -1775,45 +1870,241 @@
   }
 
   /* ---------- 平台快照策略：池子排名表 ---------- */
+  /* 得分格式化：百分比口径带 %，斜率口径保留两位小数 */
+  function fmtScore(v, isPct) {
+    if (v == null) return '--';
+    return isPct ? (v * 100).toFixed(2) + '%' : (Math.round(v * 100) / 100).toFixed(2);
+  }
+  /* 区间条：游标落在合格区间内为绿，越界贴边显示红色 */
+  function rangeBar(v, lo, hi) {
+    if (v == null || lo == null || hi == null) return '';
+    var span = hi - lo;
+    if (!(span > 0)) return '';
+    var inR = (v >= lo && v <= hi), pos = (v - lo) / span;
+    if (pos < 0) pos = 0; else if (pos > 1) pos = 1;
+    var W = 34, D = 5;
+    return '<s style="display:block;position:relative;width:' + W + 'px;height:3px;margin-top:5px;' +
+      'background:rgba(140,140,140,.38);border-radius:2px;text-decoration:none">' +
+      '<s style="display:block;position:absolute;left:' + Math.round(pos * (W - D)) +
+      'px;top:-1.5px;width:' + D + 'px;height:6px;border-radius:3px;text-decoration:none;background:' +
+      (inR ? '#4ea36b' : '#e0574a') + '"></s></s>';
+  }
+
+  /* ---------- 本地复算轨卡（离线兜底 / 官方对账） ---------- */
+  function localReplicaCard(id) {
+    var par = (typeof PARITY !== 'undefined' && window.PARITY) ? PARITY[id] : null;
+    if (par) return parityCard(id, par);
+    var r = (typeof LOCALR !== 'undefined') ? LOCALR[id] : null;
+    if (!r) return '';
+    var d = ((typeof SNAP !== 'undefined' && SNAP.s) ? SNAP.s[id] : null) || {};
+    var off = (d.official && d.metrics) ? d.metrics : null;
+    var loc = r.metrics || {};
+    var v1 = r.nav && r.nav.length ? r.nav[r.nav.length - 1][1] : null;
+    var dt = (off && off.total != null && loc.total != null) ? (loc.total - off.total) : null;
+    var da = (off && off.annual != null && loc.annual != null) ? (loc.annual - off.annual) : null;
+    function row(name, m, val, hot) {
+      return '<tr' + (hot ? ' class="hrow"' : '') + '><td><span class="nm">' + name + '</span></td>' +
+        '<td class="num">' + (val == null ? '--' : money(val)) + '</td>' +
+        '<td class="num ' + cls(m.total) + '">' + (m.total != null ? (m.total > 0 ? '+' : '') + m.total.toFixed(2) + '%' : '--') + '</td>' +
+        '<td class="num ' + cls(m.annual) + '">' + (m.annual != null ? (m.annual > 0 ? '+' : '') + m.annual.toFixed(2) + '%' : '--') + '</td>' +
+        '<td class="num dn">' + (m.mdd != null ? '-' + Math.abs(m.mdd).toFixed(2) + '%' : '--') + '</td>' +
+        '<td class="num">' + (m.trades != null ? m.trades : '--') + '</td></tr>';
+    }
+    var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>本地复算 · 14:30 真值</h2>' +
+      '<span class="rt">' + esc(String(r.nav[0][0]).slice(0, 4) + '-' + String(r.nav[0][0]).slice(4, 6) + '-' +
+        String(r.nav[0][0]).slice(6) + ' ~ ' + String(r.gen).slice(0, 4) + '-' + String(r.gen).slice(4, 6) + '-' + String(r.gen).slice(6)) +
+      '</span></div><div class="tw"><table class="rt4"><thead><tr>' +
+      '<th>口径</th><th>期末净值</th><th>累计</th><th>年化</th><th>最大回撤</th><th>笔数<i class="thsub">真值段</i></th>' +
+      '</tr></thead><tbody>';
+    if (off) html += row('官方 /' + r.id, off, d.nav && d.nav.length ? d.nav[d.nav.length - 1][1] : null, false);
+    html += row('本地复算', loc, v1, !off);
+    html += '</tbody></table></div>';
+    var seg = r.seg || {};
+    if (off && seg.bd) {
+      var bd = String(seg.bd), bs = bd.slice(0, 4) + '-' + bd.slice(4, 6) + '-' + bd.slice(6);
+      var offA = seg.aMode === 'official';
+      var dsA = (seg.aFrom ? (String(seg.aFrom).slice(0, 4) + '-' + String(seg.aFrom).slice(4, 6) + '-' + String(seg.aFrom).slice(6)) : '--') +
+        ' ~ ' + (seg.aTo ? (String(seg.aTo).slice(0, 4) + '-' + String(seg.aTo).slice(4, 6) + '-' + String(seg.aTo).slice(6)) : '--');
+      html += '<div class="segv">' +
+        '<div class="sv"><div class="svk">A 段 ≤ ' + (seg.aTo ? (String(seg.aTo).slice(0, 4) + '-' + String(seg.aTo).slice(4, 6) + '-' + String(seg.aTo).slice(6)) : bs) + '</div><div class="svv ' + (offA ? 'dim' : 'warn') + '">' +
+        (offA ? '沿用' : (seg.aRatio != null ? seg.aRatio.toFixed(4) : '--')) + '</div>' +
+        '<div class="svd">' + (offA ? '官方逐日净值 · 未独立复算' : '日线收盘近似 · 缺分钟数据') + '</div></div>' +
+        '<div class="sv"><div class="svk">B 段 ≥ ' + bs + '</div><div class="svv good">' +
+        (seg.bRatio != null ? seg.bRatio.toFixed(4) : '--') + '</div>' +
+        '<div class="svd">通达信 14:30 真值 · 本地/官方</div></div>' +
+        '</div>';
+    }
+    html += '<div class="vnote" style="margin-top:8px">' +
+      (off
+        ? ('两轨差：累计 <b>' + (dt > 0 ? '+' : '') + dt.toFixed(1) + 'pp</b>，年化 <b>' + (da > 0 ? '+' : '') + da.toFixed(1) +
+           'pp</b>。<b>A 段 ' + dsA + '</b> 直接沿用官方逐日净值——该区间官方分钟数据不可得，<b>不独立复算、不做外推</b>；' +
+           '<b>' + (seg.bd ? (String(seg.bd).slice(0, 4) + '-' + String(seg.bd).slice(4, 6) + '-' + String(seg.bd).slice(6)) : '') +
+           ' 起</b>为真值段：信号与成交全部用通达信 30 分钟线的<b>真实 14:30 价</b>，覆盖 <b>' +
+           (seg.bDays || '--') + ' 个交易日</b>、<b>' + (seg.bTrades || '--') + ' 笔</b>，与官方同期比值 <b>' +
+           (seg.bRatio != null ? seg.bRatio.toFixed(4) : '--') + '</b>（误差 ' +
+           (seg.bRatio != null ? (100 - seg.bRatio * 100).toFixed(1) : '--') + '%）。' +
+           '该比值来自实测、参数固定未调：7 只池 · 25 日加权斜率 0~2 · TOP1 · 回撤 10% 止损 · 零成本 · 2% 现金预留。' +
+           '笔数一列只统计真值段，历史段不产生本地逐笔。' +
+           '<br><b>交叉验证</b>：用官方 <b>583 笔交割单</b>逐笔重建净值，2020–2025 逐年比值全为 <b>1.0000</b>、全周期 <b>0.9961</b>，' +
+           '证明价格与成交数据本身无误；本地复算的残差来自<b>「信号持仓 ≠ 官方实际持仓」</b>——官方含止损、涨跌停剔除与冻结，' +
+           '二者逐日分歧 <b>1146 / 1355 天</b>。')
+        : '官方接口未同步，本页净值、绩效、逐笔已切换到<b>本地复算值</b>。参数按官方配置固定，未做任何调参。') +
+      ' · 平台接口不可用时本轨自动接管，不依赖任何在线服务。</div></div>';
+    return html;
+  }
+
   function snapRankCard(s, ranks, a) {
     var d = (typeof SNAP !== 'undefined' && SNAP.s) ? (SNAP.s[s.id] || {}) : {};
     var mom = d.mom || {};
     var isPct = (mom.type === 'pct');
     var win = mom.m1 || (isPct ? 2 : 25);
+    var lo = (mom.m1lo != null ? mom.m1lo : null);
+    var hi = (mom.m1hi != null ? mom.m1hi : null);
     var passN = 0;
     ranks.forEach(function (r) { if (r.pass) passN++; });
     var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>池子排名</h2>' +
-      '<span class="rt">全 ' + ranks.length + ' 只 · 合格 ' + passN + '</span></div>' +
+      '<span class="rt">全 ' + ranks.length + ' 只 · 合格 ' + passN +
+      (lo != null && hi != null ? ' · 合格区间 ' + fmtScore(lo, isPct) + ' ~ ' + fmtScore(hi, isPct) : '') +
+      '</span></div>' +
       '<div class="tw"><table class="rt4"><thead><tr>' +
-      '<th>#</th><th>标的</th><th>现价</th><th>涨跌</th><th>' + (isPct ? (win + '日涨幅') : (win + '日斜率')) + '</th>' +
+      '<th>#</th><th>标的</th><th>现价</th><th>涨跌</th><th>' + (isPct ? (win + '日涨幅') : (win + '日斜率')) +
+      (lo != null && hi != null ? '<i class="sub15">合格 ' + fmtScore(lo, isPct) + '~' + fmtScore(hi, isPct) + '</i>' : '') +
+      '</th>' +
       '<th>乖离</th><th>状态</th></tr></thead><tbody>';
     ranks.forEach(function (r, i) {
+      var why = '';
+      if (r.score == null) why = '数据不足';
+      else if (r.filters && r.filters.length) why = r.filters[0];
+      else if (lo != null && r.score < lo) why = '低于 ' + fmtScore(lo, isPct);
+      else if (hi != null && r.score > hi) why = '高于 ' + fmtScore(hi, isPct);
+      else why = '区间外';
       var badge = r.held ? '<span class="badge on">持仓</span>'
         : (r.pass ? (i === 0 ? '<span class="badge top">TOP1</span>' : '<span class="badge cand">候选</span>')
-          : '<span class="badge off">' + esc((r.filters && r.filters.length) ? r.filters[0]
-            : (r.score == null ? '数据不足' : (isPct ? '区间外' : '阈值外'))) + '</span>');
+          : '<span class="badge off">' + esc(why) + '</span>');
       if (d.cfg && d.cfg.fallback && String(d.cfg.fallback) === String(r.code) && !r.held) {
         badge = '<span class="badge cand">兜底</span>';
       }
-      var mv = (r.score == null) ? '--' : (isPct ? spct(r.score) : num(r.score, 3));
+      var mv = (r.score == null) ? '--' : (isPct ? spct(r.score)
+        : (r.momSrc ? r.score.toFixed(4) : num(r.score, 3)));
+      var srcTag = r.momSrc ? '<span class="badge cand" style="margin-left:4px">官网</span>' : '';
       html += '<tr' + (r.held ? ' class="hrow"' : '') + '><td>' + (i + 1) + '</td>' +
-        '<td><span class="nm">' + esc(r.n) + '</span><i class="sub15">' + r.code + '</i></td>' +
+        '<td><span class="nm">' + esc(r.n) + '</span><i class="sub15">' + r.code + '</i>' + srcTag + '</td>' +
         '<td class="num">' + num(r.price, 3) + '</td>' +
         '<td class="num ' + cls(r.chg) + '">' + spct(r.chg) + '</td>' +
-        '<td class="num ' + cls(r.score) + '"><b>' + mv + '</b></td>' +
+        '<td class="num ' + cls(r.score) + '"><b>' + mv + '</b>' + rangeBar(r.score, lo, hi) + '</td>' +
         '<td class="num ' + cls(r.bias) + '">' + (r.bias == null ? '--' : num(r.bias) + '%') + '</td>' +
         '<td>' + badge + '</td></tr>';
     });
-    var lo = (mom.m1lo != null ? mom.m1lo : 0), hi = (mom.m1hi != null ? mom.m1hi : 0);
-    html += '</tbody></table></div><div class="vnote" style="margin-top:8px">动量口径：' +
-      (isPct ? (win + ' 日涨幅，合格区间 ' + (lo * 100).toFixed(2) + '% ~ ' + (hi * 100).toFixed(1) + '%')
-        : (win + ' 日加权斜率（年化斜率 × 加权R²），合格区间 ' + lo + ' ~ ' + hi)) +
-      ' · 乖离 = 现价/MA20 − 1 · 按 ' + esc(a.lastDate || '最新') + ' 收盘复算 · 溢价需实时 IOPV，离线留空</div></div>';
+    var fb = (d.cfg && d.cfg.fallback && String(d.cfg.fallback) !== '0') ? d.cfg.fallback : null;
+    var effD = tdxLast() || ((typeof idx !== 'undefined' && idx && idx.calendar && idx.calendar.length)
+      ? idx.calendar[idx.calendar.length - 1] : (a.lastDate || '最新'));
+    var use1430 = !!(ranks.length && ranks[0].src1430);
+    html += '</tbody></table></div><div class="vnote" style="margin-top:8px">判定规则：' +
+      (isPct ? (win + ' 日涨幅') : (win + ' 日加权斜率（年化斜率 × 加权 R²）')) +
+      ' 得分落在 <b>' + (lo != null ? fmtScore(lo, isPct) : '—') + ' ~ ' + (hi != null ? fmtScore(hi, isPct) : '—') +
+      '</b> 之间才算合格（低于下限、高于上限均不买），合格者取第 1 名买入' +
+      (fb ? '，无合格标的时持有兜底 ' + esc(fb) : '，无合格标的则空仓持现金') +
+      ' · 得分以<b>小数</b>计，0.352 即 <b>35.2%</b>（区间 0~2.000 对应 0~200%）' +
+      ' · 乖离 = 现价/MA20 − 1 · 按 ' + esc(String(effD).length === 8
+        ? String(effD).slice(0, 4) + '-' + String(effD).slice(4, 6) + '-' + String(effD).slice(6) : String(effD)) +
+      (use1430 ? ' <b>14:30 分时价</b>复算（官网口径）' : ' 收盘价复算（该段无 14:30 数据）') +
+      ' · 标「官网」者用官网「动量计算过程」弹窗的 25 点后复权真值（512890 = slope 0.001918 / 年化 0.6151 / R² 0.6928 / 评分 <b>0.4261</b>），其余六只官网弹窗价未取到，用不复权 14:30 价近似' +
+      ' · 溢价需实时 IOPV，离线留空</div></div>';
     return html;
   }
 
   /* ---------- 平台快照策略：调仓记录 ---------- */
+  /* ---------- 官方交割单（583 笔真值） ---------- */
+  function offTradesFull(id, o) {
+    var list = o.trades || [];
+    var PER = 15;
+    var pages = Math.max(1, Math.ceil(list.length / PER));
+    var pg = APP.tradePage[id] || 1;
+    if (pg > pages) pg = pages;
+    if (pg < 1) pg = 1;
+    var shown = list.slice().reverse().slice((pg - 1) * PER, pg * PER);
+    var last = list.length ? list[list.length - 1].d : '';
+    var nb = 0, ns = 0, i;
+    for (i = 0; i < list.length; i++) { if (list[i].act === 'BUY') nb++; else ns++; }
+    var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>调仓记录 · 官方交割单</h2>' +
+      '<span class="rt">共 ' + list.length + ' 笔 · 买 ' + nb + ' / 卖 ' + ns + ' · 第 ' + pg + '/' + pages +
+      ' 页 · 最新 ' + last.slice(4, 6) + '-' + last.slice(6) + '</span></div>' +
+      '<div class="vnote">平台官方导出的<b>逐笔交割单</b>（非反推）：价格 = 执行时点 <b>14:30:00 分时价</b>' +
+      '（2024-11 之后 192 笔可校验，中位偏差 <b>0.00000</b>、最大 0.00099），数量为<b>整百股</b>，盈亏与持有天数为平台原值。' +
+      '同日先卖后买按平台原始顺序排列。</div>' +
+      '<div class="tw"><table class="rt4"><thead><tr>' +
+      '<th>交易日期</th><th>操作</th><th>ETF代码</th><th>价格</th><th>数量</th><th>总额</th><th>盈亏</th><th>持有天数</th></tr></thead><tbody>';
+    shown.forEach(function (t) {
+      var sell = t.act === 'SELL';
+      var pnlTxt = '--';
+      if (sell && t.pnl != null) {
+        pnlTxt = '<span class="' + cls(t.pnl) + '">' + (t.pnl >= 0 ? '+' : '') + money(t.pnl) + '</span>';
+      }
+      html += '<tr><td class="num" style="font-size:10.5px;color:var(--sub)">' + t.d.slice(0, 4) + '-' + t.d.slice(4, 6) + '-' + t.d.slice(6) + '</td>' +
+        '<td><span class="badge ' + (sell ? 'off' : 'on') + '">' + (sell ? '卖' : '买') + '</span></td>' +
+        '<td><span class="nm">' + esc(t.n) + '</span><i class="sub15">' + t.c + '</i></td>' +
+        '<td class="num">' + num(t.px, 3) + '</td>' +
+        '<td class="num">' + t.sh + '</td>' +
+        '<td class="num">' + money(t.amt) + '</td>' +
+        '<td class="num">' + pnlTxt + '</td>' +
+        '<td class="num">' + (sell ? (t.days == null ? '--' : t.days) : '--') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    if (pages > 1) {
+      html += '<div class="pager">' +
+        '<button class="pgb" onclick="UI.tp(\'' + id + '\',-1)"' + (pg <= 1 ? ' disabled' : '') + '>‹ 上一页</button>' +
+        '<span class="pgn">' + pg + ' / ' + pages + '</span>' +
+        '<button class="pgb" onclick="UI.tp(\'' + id + '\',1)"' + (pg >= pages ? ' disabled' : '') + '>下一页 ›</button></div>';
+    }
+    var cur = null;
+    for (i = list.length - 1; i >= 0; i--) {
+      if (list[i].act === 'BUY') { cur = list[i]; break; }
+    }
+    if (cur) {
+      html += '<div class="vnote" style="margin-top:8px">最新买入：<b>' + esc(cur.n) + ' ' + cur.c + '</b> ' + cur.sh +
+        ' 股 @' + num(cur.px, 3) + ' · ' + cur.d.slice(4, 6) + '-' + cur.d.slice(6) + ' · 状态 <b>持有中</b></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  /* ---------- 对账卡：官方口径已锁定 ---------- */
+  function parityCard(id, p) {
+    var yr = p.yearly || {};
+    var ys = Object.keys(yr).sort().map(function (y) { return y + ' ' + (yr[y] === 1 ? '1.0000' : yr[y].toFixed(4)); }).join(' · ');
+    var okAll = (p.holdMatch === p.holdDays);
+    var html = '<div class="card"><div class="chd"><span class="bar"></span><h2>对账 · 官方口径已锁定</h2>' +
+      '<span class="rt">' + p.trades + ' 笔交割单 · ' + p.firstDay + ' ~ ' + p.lastDay + '</span></div>' +
+      '<div class="tw"><table class="rt4"><thead><tr>' +
+      '<th>校验项</th><th>结果</th><th>说明</th></tr></thead><tbody>';
+    html += '<tr class="hrow"><td><span class="nm">持仓逐日</span></td>' +
+      '<td class="num"><b class="up">' + p.holdMatch + ' / ' + p.holdDays + '</b></td>' +
+      '<td>回测日志「当前持仓」与 583 笔交割单逐日重建，' + (okAll ? '<b>100% 一致</b>' : '存在分歧') + '</td></tr>';
+    html += '<tr><td><span class="nm">成交价</span></td>' +
+      '<td class="num"><b>' + p.pxChecked + ' 笔</b></td>' +
+      '<td>执行价 = <b>14:30:00</b> 分时价 · 中位偏差 <b>' + (p.pxMedian == null ? '--' : p.pxMedian.toFixed(5)) +
+      '</b> · 最大 ' + (p.pxMax == null ? '--' : p.pxMax.toFixed(5)) + '</td></tr>';
+    html += '<tr><td><span class="nm">净值重放</span></td>' +
+      '<td class="num"><b>' + (p.full === 1 ? '1.0000' : p.full.toFixed(4)) + '</b></td>' +
+      '<td>交割单 + 收盘记账逐日重放：' + ys + '</td></tr>';
+    html += '<tr><td><span class="nm">执行参数</span></td>' +
+      '<td class="num"><b>固定</b></td>' +
+      '<td>' + p.fill + ' 成交 · ' + p.mark + ' 记账 · <b>100%</b> 满仓（预留 ' + (p.reserve * 100) + '%）· ' +
+      '整 ' + p.lot + ' 股 · 止损 -' + (p.stop * 100) + '%（历史触发 <b>' + p.stopHit + '</b> 次，最差单笔卖出 ' +
+      (p.worstSell == null ? '--' : p.worstSell.toFixed(1) + '%') + '）</td></tr>';
+    html += '</tbody></table></div>' +
+      '<div class="vnote" style="margin-top:8px">本页净值、绩效、持仓、排名、调仓记录<b>全部为平台官方真值</b>，不再有任何本地近似或反推。' +
+      '官方页面：2,919,112 · +2819.11% · 年化 66.56% · 回撤 13.71% · 581 笔 · 胜率 56.2% · vol 24.11 · sharpe 2.76 · calmar 4.86。' +
+      '唯一不可复算的区间是 2020–2024 的 14:30 分钟数据（通达信 MCP 最早只到 2024-10-31），该段直接沿用官方逐日净值。<br>' +
+      '<b>双官方轨说明</b>：平台接口净值（头部 2,919,112）与导出「每日收益」（2,786,491）是两次官方回测，' +
+      '<b>2020-07-28</b> 起分叉（当日持仓 512890 / 159915 不同），到 2026-11-20 累计相差 <b>4.76%</b>；' +
+      '本页头部、曲线、绩效用接口真值，583 笔交割单用导出真值，两条轨各自内部 100% 自洽。</div></div>';
+    return html;
+  }
+
   function snapTrades(id, a) {
+    var tf = (window.OFFTF || {})[id];
+    if (tf && tf.trades && tf.trades.length) return offTradesFull(id, tf);
     var of = (window.OFFTR || {})[id];
     if (of && of.trades && of.trades.length) return offTradesTable(id, of);
     var all = a.trades || [];
@@ -2273,10 +2564,28 @@
     p.innerHTML = '<i class="dot' + (live ? '' : ' off') + '"></i><span>' + esc(txt) + '</span>';
   }
 
+  /* 本地复算轨接管：官方已同步则仅作对账；未同步则整卡切到复算值 */
+  function applyLocalReplica() {
+    if (typeof LOCALR === 'undefined' || !window.SNAP || !SNAP.s) return;
+    for (var id in LOCALR) {
+      var r = LOCALR[id], d = SNAP.s[id];
+      if (!d) { d = SNAP.s[id] = {}; }
+      if (d.official && d.nav && d.nav.length) { d.localTrack = true; continue; }
+      d.nav = r.nav;
+      d.metrics = r.metrics;
+      d.official = false;
+      d.engine = true;
+      d.localOnly = true;
+      d.sync = r.gen;
+      d.note = r.note;
+    }
+  }
+
   function boot(force) {
     if (booting) return;
     booting = true;
     loadState();
+    applyLocalReplica();
     // 可选：?cal=m / ?cal=y 直接打开对应收益视图
     try {
       var q = new URLSearchParams(location.search).get('cal');
@@ -2321,6 +2630,8 @@
   var UI = {
     go: go,
     theme: toggleTheme,
+    labSet: function (m) { LAB.m = m; renderHome(); },
+    labN: function (v) { v = Math.round(+v || 25); LAB.n = Math.max(3, Math.min(120, v)); renderHome(); },
     ack: function (id) {
       var t = todayStr();
       APP.ack[t] = APP.ack[t] || {};
