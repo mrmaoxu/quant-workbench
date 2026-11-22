@@ -1017,6 +1017,7 @@
   ];
 
   function labCard() {
+    if (typeof LABVIEW !== 'undefined') return LABVIEW.card();
     if (typeof MOM === 'undefined') return '';
     var date = tdxLast() || (idx && idx.calendar.length ? idx.calendar[idx.calendar.length - 1] : '');
     var method = LAB.m, n = LAB.n, rows = [];
@@ -1065,6 +1066,24 @@
       '<b>V1 与 V2 的差别只在 R² 的权重口径</b>：V1 回归用 w、总方差用未加权均值（可能负 R²）；V2 全程 w²，与平台 0.4261 逐位一致。</div>' +
       '</div>';
   }
+  /* 供动量计算工具使用的本地数据适配 */
+  window.LABDATA = {
+    names: CODE_NAMES,
+    dataFor: function (code, date8, src) {
+      var close = (idx && QE.seriesTo) ? (QE.seriesTo(idx, code, date8) || []) : [];
+      var intr = series1430(code, date8) || [];
+      if (src === 'ohlc') {
+        var o = (typeof OHLC !== 'undefined' && OHLC && OHLC[code]) ? OHLC[code] : null;
+        if (!o) return null;
+        var hi = [], lo = [];
+        for (var i = 0; i < o.d.length; i++) if (o.d[i] <= date8) { hi.push(o.h[i]); lo.push(o.l[i]); }
+        return hi.length ? { highs: hi, lows: lo } : null;
+      }
+      if (src === 'intraday') return intr.length ? { intraday: intr } : null;
+      return close.length ? { close: close } : null;
+    }
+  };
+
   /* ---------- 渲染：总览 ---------- */
   function renderHome() {
     var CORE = ['momentum', 'earth', 'lowfreq'];
@@ -1159,6 +1178,7 @@
       chart(combo, { h: 160 }) + '</div>';
 
     $('view-home').innerHTML = html;
+    if (window.LABVIEW) LABVIEW.init();
   }
 
   function combinedNav() {

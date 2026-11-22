@@ -12,15 +12,15 @@
    权重 w = 1 → 2 线性递增；年化 = exp(slope × 250) - 1；得分一律截断到 4 位小数 */
 window.MOM = (function () {
   var METHODS = [
-    { k: 'simple', n: '区间涨幅', src: 'close', desc: '只用首尾两个收盘价，最快最粗' },
-    { k: 'simple_intraday', n: '区间涨幅(分时版)', src: 'intraday', desc: '首尾两点取 14:30 分时价' },
-    { k: 'slope', n: '斜率', src: 'close', desc: 'ln 价等权回归，年化 × R²，兼顾方向与稳定' },
-    { k: 'slope_intraday', n: '斜率(分时版)', src: 'intraday', desc: '同斜率，价格取 14:30 分时序列' },
-    { k: 'wslope', n: '加权斜率', src: 'close', desc: 'V1：回归 w、总方差用未加权均值，R² 可能为负' },
-    { k: 'wslope_intraday', n: '加权斜率(分时版)', src: 'intraday', desc: 'V1 的分时价版本' },
-    { k: 'wslope_v2', n: '加权斜率-V2', src: 'close', desc: 'V2：回归/残差/总方差/均值统一 w²（推荐）' },
-    { k: 'wslope_v2_intraday', n: '加权斜率(分时版)-V2', src: 'intraday', desc: 'V2 的分时价版本' },
-    { k: 'rsrs', n: 'RSRS动量', src: 'ohlc', desc: '最高价对最低价回归 β×R²，再对历史 2N 期做 Z-Score' }
+    { k: 'simple_close', n: '区间涨幅', src: 'close', desc: '只用首尾两个收盘价，最快最粗' },
+    { k: 'rsrs', n: 'RSRS动量', src: 'ohlc', desc: '最高价对最低价回归 β×R²，再对历史 2N 期做 Z-Score' },
+    { k: 'slope_close', n: '斜率', src: 'close', desc: 'ln 收盘价等权回归，年化 × R²' },
+    { k: 'weighted_slope_close', n: '加权斜率', src: 'close', desc: 'V1：近期权重 1→2，R² 口径与 V2 不同' },
+    { k: 'simple', n: '区间涨幅(分时版)', src: 'intraday', desc: '首尾两点取 14:30 分时价' },
+    { k: 'slope', n: '斜率(分时版)', src: 'intraday', desc: '同斜率，价格取 14:30 分时序列' },
+    { k: 'weighted_slope', n: '加权斜率(分时版)', src: 'intraday', desc: 'V1 的分时价版本' },
+    { k: 'weighted_slope_close_v2', n: '加权斜率-V2', src: 'close', desc: 'V2：回归/残差/总方差/均值统一 w²（推荐）' },
+    { k: 'weighted_slope_v2', n: '加权斜率(分时版)-V2', src: 'intraday', desc: 'V2 的分时价版本，与官网弹窗同口径' }
   ];
 
   function trunc4(x) { return Math.trunc(x * 10000) / 10000; }
@@ -101,18 +101,17 @@ window.MOM = (function () {
     var n = opt.n || 25;
     var m = method;
     if (m === 'rsrs') return rsrs(data.highs, data.lows, opt.rsrsN || 18, opt.betaLo, opt.betaHi, opt.r2Thr);
-    var intraday = /_intraday$/.test(m);
+    var intraday = !/_close$/.test(m);
     var prices = intraday ? data.intraday : data.close;
-    if (m === 'simple' || m === 'simple_intraday') {
+    if (m === 'simple' || m === 'simple_close') {
       if (!prices || prices.length < n + 1) return null;
       var base = prices[prices.length - 1 - n], last = prices[prices.length - 1];
       if (!(base > 0)) return null;
       return { score: trunc4(last / base - 1), annual: last / base - 1, r2: null, slope: null };
     }
-    var core = m.replace('_intraday', '');
-    if (core === 'slope') return slopeFamily(prices, n, 'ols');
-    if (core === 'wslope') return slopeFamily(prices, n, 'v1');
-    if (core === 'wslope_v2') return slopeFamily(prices, n, 'v2');
+    if (m === 'slope' || m === 'slope_close') return slopeFamily(prices, n, 'ols');
+    if (m === 'weighted_slope' || m === 'weighted_slope_close') return slopeFamily(prices, n, 'v1');
+    if (m === 'weighted_slope_v2' || m === 'weighted_slope_close_v2') return slopeFamily(prices, n, 'v2');
     return null;
   }
 

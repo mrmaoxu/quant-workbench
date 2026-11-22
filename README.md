@@ -96,3 +96,10 @@ V1 版本（部分老策略）用 `int(annual * R² * 10000)` 截断。版本用
 - 代码：`assets/momentum.js`（统一入口 `MOM.calc(method, data, {n})`）、`assets/ohlc.js`（7 只 ETF 日线高低价）。
 - 页面可切换 9 种方法、改周期（3~120 日），7 只 ETF 实时排名；512890 的分时 V2 直接吃平台弹窗 25 点真值，打「官网」徽标。
 - 官方策略已同步：纯粹 13429、ETF动量轮动 96242、七龙珠V2 96563、**银行等股灾 96560**、大类资产轮动 96561，另有买地球 22753 作官方对照。
+
+## v46 · 动量计算工具（完整仿官网）
+
+- 面板与 `cifangquant.com/tool/momentum` 对齐：ETF 多选（搜索添加、删除、清空、最多 50 只、localStorage 记忆）、9 个算法按钮、动量日期（datetime）、计算周期（3–120）、分时时间（09:30–15:00 七档）。
+- 在线（`serve.py` 本地代理）直接 POST 平台公开接口 `/api/etf/realtime-momentum`，结果与官网逐位一致；断网/静态页回落本地复算，7 只 ETF 内置平台 25 日真值。
+- 新增 `assets/lab.js`、`assets/offmom_all.js`；`serve.py` 增加 `/api/momentum`、`/api/fund-search` 代理。
+- 实测：加权斜率(分时版) 512890 = 0.4235、加权斜率(分时版)-V2 = 0.4321、斜率 = 0.3484、RSRS = -1.3774；自定义加入 515020 银行ETF 正常出分。
