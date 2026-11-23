@@ -338,6 +338,7 @@
   }
 
   function isTradingDay(d) {
+    if (!idx || !idx.byCode) return false;
     var o = idx.byCode[QE.STRATS.momentum.bench.c];
     return !!(o && o.map[d] !== undefined);
   }
@@ -1071,15 +1072,28 @@
     names: CODE_NAMES,
     dataFor: function (code, date8, src) {
       var close = (idx && QE.seriesTo) ? (QE.seriesTo(idx, code, date8) || []) : [];
-      var intr = series1430(code, date8) || [];
       if (src === 'ohlc') {
-        var o = (typeof OHLC !== 'undefined' && OHLC && OHLC[code]) ? OHLC[code] : null;
-        if (!o) return null;
-        var hi = [], lo = [];
-        for (var i = 0; i < o.d.length; i++) if (o.d[i] <= date8) { hi.push(o.h[i]); lo.push(o.l[i]); }
+        /* 静态 OHLC 基线 + 腾讯日线最新 high/low 覆盖/延伸，保证新日期可算 RSRS */
+        var map = {}, o = (typeof OHLC !== 'undefined' && OHLC && OHLC[code]) ? OHLC[code] : null, i;
+        if (o) for (i = 0; i < o.d.length; i++) map[o.d[i]] = [o.h[i], o.l[i]];
+        var hl = (DATA.klines[code] || {}).hl || {};
+        for (var dt in hl) map[dt.replace(/-/g, '')] = hl[dt];
+        var ds = Object.keys(map).sort(), hi = [], lo = [];
+        for (i = 0; i < ds.length; i++) if (ds[i] <= date8) { hi.push(map[ds[i]][0]); lo.push(map[ds[i]][1]); }
         return hi.length ? { highs: hi, lows: lo } : null;
       }
-      if (src === 'intraday') return intr.length ? { intraday: intr } : null;
+      if (src === 'intraday') {
+        /* TDXR 14:30 真值只覆盖其快照区间；之后的日期用日线收盘近似，今日末点用实时价 */
+        var tl = tdxLast();
+        var intr = (tl && date8 <= tl) ? series1430(code, date8) : null;
+        if (intr && intr.length) return { intraday: intr };
+        var c2 = close.slice(), t8 = todayStr(), rt = DATA.rt[code];
+        if (date8 === t8 && rt && rt.price > 0) {
+          var hasToday = idx && idx.byCode && idx.byCode[code] && idx.byCode[code].map[t8] !== undefined;
+          if (c2.length && hasToday) c2[c2.length - 1] = rt.price; else c2.push(rt.price);
+        }
+        return c2.length ? { intraday: c2 } : null;
+      }
       return close.length ? { close: close } : null;
     }
   };
@@ -2616,7 +2630,7 @@
     var codes = allCodes();
     DATA.loadKlines(codes, function (done, total) {
       setStatus('行情 ' + done + '/' + total, false);
-    }).then(function () {
+    }, force).then(function () {
       idx = QE.buildIndex(DATA.klines);
       return DATA.loadRT(codes);
     }).then(function () {
@@ -2766,16 +2780,30 @@
   };
   window.UI = UI;
 
-  /* 定时器：实时价 60s，倒计时 20s */
+  /* 定时器：实时价 60s；盘中同时按 10 分钟节流补日线并重算三策略，倒计时 20s */
   setInterval(function () {
     if (!booted) return;
     var ms = DATA.marketState();
     if (ms.open) {
-      DATA.loadRT(allCodes()).then(function () {
-        computePending();
+      Promise.all([
+        DATA.loadRT(allCodes()),
+        DATA.loadKlines(allCodes()).catch(function () { })
+      ]).then(function () {
+        idx = QE.buildIndex(DATA.klines);
+        lastClosed = calcLastClosed();
+        runAll();
         if (APP.view === 'home') renderHome(); else renderStrat(APP.view);
         pushDaily();
       });
+    } else if (ms.text === '已收盘' && window.__qwCloseFetch !== todayStr()) {
+      /* 收盘后强制补一次日线，拿最终收盘价重算 */
+      window.__qwCloseFetch = todayStr();
+      DATA.loadKlines(allCodes(), null, true).then(function () {
+        idx = QE.buildIndex(DATA.klines);
+        lastClosed = calcLastClosed();
+        runAll();
+        renderAll();
+      }).catch(function () { });
     }
     var cd = $('cdBox');
     if (cd) {

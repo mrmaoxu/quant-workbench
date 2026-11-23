@@ -802,6 +802,8 @@ window.LABVIEW = (function () {
   ];
   var TIMES = ['09:30', '10:30', '13:00', '14:00', '14:30', '14:50', '15:00'];
   var DEFAULT_POOL = ['512890', '161127', '159985', '159941', '518880', '513520', '159915'];
+  /* 内置官方真值只对应该快照日期；其他日期必须走在线接口或本地复算，绝不能拿旧真值冒充 */
+  var SNAP_DATE = '2026-11-22';
 
   var S = null;
 
@@ -842,7 +844,7 @@ window.LABVIEW = (function () {
       '</div>' +
       '<div class="labgo"><button class="btn pri" data-act="calc" id="labGo">▶ 开始计算</button><span class="labmsg" id="labMsg">' + esc(st.err) + '</span></div>' +
       '<div id="labRes">' + resultHTML() + '</div>' +
-      '<div class="vnote" style="margin-top:8px">在线时直连平台公开接口（本地代理，无 CORS），结果与官网逐位一致；接口不可用时用本地复算并标注「本地」。512890 等 7 只已内置平台 25 日真值。</div>' +
+      '<div class="vnote" style="margin-top:8px">在线时直连平台公开接口（本地代理，无 CORS），结果与官网逐位一致；接口不可用时用最新日线本地复算并标注「本地」。内置官方真值仅对应 ' + SNAP_DATE + ' 快照，其他日期一律实时计算。</div>' +
       '</div>' + modalHTML();
   }
 
@@ -942,7 +944,7 @@ window.LABVIEW = (function () {
     for (var i = 0; i < S.pool.length; i++) {
       var code = S.pool[i], v = null, series = null;
       var off = all[m.k] && all[m.k][code];
-      if (off && S.n === 25) { v = off.v; series = off.h.map(function (x) { return x[1]; }).concat([off.t[1]]); srcNote = '官方内置'; }
+      if (off && S.n === 25 && (S.date || '').slice(0, 10) === SNAP_DATE) { v = off.v; series = off.h.map(function (x) { return x[1]; }).concat([off.t[1]]); srcNote = '官方内置'; }
       else {
         var data = LABDATA ? LABDATA.dataFor(code, date, m.src) : null;
         if (data) {
@@ -2086,7 +2088,7 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
           if (cur.d[i] > lastB) { dd.push(cur.d[i]); cc.push(cur.c[i]); }
         }
       }
-      D.klines[code] = { d: dd, c: cc };
+      D.klines[code] = { d: dd, c: cc, hl: (cur && cur.hl) || undefined };
       D.biLast[code] = dd[dd.length - 1];
       n++;
     }
@@ -2139,7 +2141,50 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
     }, 400);
   }
 
+  /* 腾讯日线（前复权）：script + _var 全局变量，file:// 也能用。
+     返回 [date, open, close, high, low, volume]；与现有历史拼接，只替换取到的区间 */
+  function tencentKline(code, count) {
+    return new Promise(function (res, rej) {
+      var v = 'txk_' + code + '_' + Math.random().toString(36).slice(2);
+      var s = document.createElement('script');
+      var done = false;
+      var t = setTimeout(function () { if (!done) { done = true; clean(); rej(new Error('tx timeout')); } }, 12000);
+      function clean() { clearTimeout(t); if (s.parentNode) s.parentNode.removeChild(s); }
+      s.onload = function () {
+        if (done) return; done = true;
+        var j = window[v]; try { delete window[v]; } catch (e) { window[v] = undefined; }
+        clean();
+        try {
+          var q = j.data[sym(code)];
+          var arr = q.qfqday || q.day;
+          if (!arr || !arr.length) return rej(new Error('tx empty'));
+          var dd = [], cc = [], i, hl = {};
+          for (i = 0; i < arr.length; i++) {
+            dd.push(arr[i][0]); cc.push(parseFloat(arr[i][2]));
+            hl[arr[i][0]] = [parseFloat(arr[i][3]), parseFloat(arr[i][4])];
+          }
+          var cur = D.klines[code], od = [], oc = [];
+          if (cur && cur.d) {
+            for (i = 0; i < cur.d.length; i++) {
+              if (cur.d[i] < dd[0]) { od.push(cur.d[i]); oc.push(cur.c[i]); }
+            }
+          }
+          D.klines[code] = { d: od.concat(dd), c: oc.concat(cc), hl: Object.assign({}, (cur && cur.hl) || {}, hl) };
+          D.meta[code] = { t: Date.now(), last: dd[dd.length - 1], name: (q.qt && q.qt[sym(code)] && q.qt[sym(code)][1]) || (D.meta[code] || {}).name };
+          res(D.klines[code]);
+        } catch (e) { rej(new Error('tx parse')); }
+      };
+      s.onerror = function () { if (done) return; done = true; clean(); rej(new Error('tx network')); };
+      s.src = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=' + sym(code) + ',day,,,' + (count || 320) + ',qfq&_var=' + v + '&_=' + Date.now();
+      document.head.appendChild(s);
+    });
+  }
+
   function fetchKline(code) {
+    return tencentKline(code, 320).catch(function () { return emKline(code); });
+  }
+
+  function emKline(code) {
     var url = 'https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=' + secid(code) +
       '&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f53&klt=101&fqt=1&beg=20190101&end=20500101&lmt=100000';
     return jsonp(url, 15000).then(function (j) {
@@ -2158,15 +2203,13 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
   function needFetch(code) {
     var m = D.meta[code], k = D.klines[code];
     if (!m || !k || !k.d || !k.d.length) return true;
-    var lastBar = k.d[k.d.length - 1];
-    if (lastBar >= today()) return false;
-    var age = Date.now() - (m.t || 0);
-    return age > 10 * 60 * 1000;
+    /* 盘中今日bar会随价格变动、收盘后需拿最终收盘价：统一按缓存年龄 10 分钟节流 */
+    return Date.now() - (m.t || 0) > 10 * 60 * 1000;
   }
 
-  function loadKlines(codes, progress) {
+  function loadKlines(codes, progress, force) {
     loadCache();
-    var queue = codes.filter(needFetch);
+    var queue = codes.filter(function (c) { return force || needFetch(c); });
     var total = queue.length, done = 0, idx = 0, active = 0;
     if (!total) { if (progress) progress(1, 1); return Promise.resolve(D.klines); }
     return new Promise(function (resolve) {
@@ -2274,17 +2317,26 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
   }
 
   function loadRT(codes) {
+    var need = Math.min(3, codes.length);
     return tencentRT(codes).then(function (a) {
-      if (Object.keys(a).length >= 3) { D.rtSrc = '腾讯'; return a; }
+      if (Object.keys(a).length >= need) { D.rtSrc = '腾讯'; return a; }
       return sinaRT(codes).then(function (s2) {
-        if (Object.keys(s2).length >= 3) { D.rtSrc = '新浪'; return s2; }
+        if (Object.keys(s2).length >= need) { D.rtSrc = '新浪'; return s2; }
         return emRT(codes).then(function (b) {
           D.rtSrc = Object.keys(b).length ? '东财' : '--';
           return Object.keys(b).length ? b : (Object.keys(s2).length ? s2 : a);
         });
       });
     }).then(function (out) {
-      if (Object.keys(out).length) { D.rt = out; D.lastFetch = Date.now(); }
+      if (Object.keys(out).length) {
+        D.rt = out; D.lastFetch = Date.now();
+        /* 腾讯日线只给两位小数：今日bar用实时价（三位小数）覆盖，保证动量/排名精度 */
+        var t = today();
+        for (var c in out) {
+          var k = D.klines[c];
+          if (k && k.d && k.d[k.d.length - 1] === t && out[c].price > 0) k.c[k.c.length - 1] = out[c].price;
+        }
+      }
       return out;
     });
   }
@@ -2653,6 +2705,7 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
   }
 
   function isTradingDay(d) {
+    if (!idx || !idx.byCode) return false;
     var o = idx.byCode[QE.STRATS.momentum.bench.c];
     return !!(o && o.map[d] !== undefined);
   }
@@ -3386,15 +3439,28 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
     names: CODE_NAMES,
     dataFor: function (code, date8, src) {
       var close = (idx && QE.seriesTo) ? (QE.seriesTo(idx, code, date8) || []) : [];
-      var intr = series1430(code, date8) || [];
       if (src === 'ohlc') {
-        var o = (typeof OHLC !== 'undefined' && OHLC && OHLC[code]) ? OHLC[code] : null;
-        if (!o) return null;
-        var hi = [], lo = [];
-        for (var i = 0; i < o.d.length; i++) if (o.d[i] <= date8) { hi.push(o.h[i]); lo.push(o.l[i]); }
+        /* 静态 OHLC 基线 + 腾讯日线最新 high/low 覆盖/延伸，保证新日期可算 RSRS */
+        var map = {}, o = (typeof OHLC !== 'undefined' && OHLC && OHLC[code]) ? OHLC[code] : null, i;
+        if (o) for (i = 0; i < o.d.length; i++) map[o.d[i]] = [o.h[i], o.l[i]];
+        var hl = (DATA.klines[code] || {}).hl || {};
+        for (var dt in hl) map[dt.replace(/-/g, '')] = hl[dt];
+        var ds = Object.keys(map).sort(), hi = [], lo = [];
+        for (i = 0; i < ds.length; i++) if (ds[i] <= date8) { hi.push(map[ds[i]][0]); lo.push(map[ds[i]][1]); }
         return hi.length ? { highs: hi, lows: lo } : null;
       }
-      if (src === 'intraday') return intr.length ? { intraday: intr } : null;
+      if (src === 'intraday') {
+        /* TDXR 14:30 真值只覆盖其快照区间；之后的日期用日线收盘近似，今日末点用实时价 */
+        var tl = tdxLast();
+        var intr = (tl && date8 <= tl) ? series1430(code, date8) : null;
+        if (intr && intr.length) return { intraday: intr };
+        var c2 = close.slice(), t8 = todayStr(), rt = DATA.rt[code];
+        if (date8 === t8 && rt && rt.price > 0) {
+          var hasToday = idx && idx.byCode && idx.byCode[code] && idx.byCode[code].map[t8] !== undefined;
+          if (c2.length && hasToday) c2[c2.length - 1] = rt.price; else c2.push(rt.price);
+        }
+        return c2.length ? { intraday: c2 } : null;
+      }
       return close.length ? { close: close } : null;
     }
   };
@@ -4931,7 +4997,7 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
     var codes = allCodes();
     DATA.loadKlines(codes, function (done, total) {
       setStatus('行情 ' + done + '/' + total, false);
-    }).then(function () {
+    }, force).then(function () {
       idx = QE.buildIndex(DATA.klines);
       return DATA.loadRT(codes);
     }).then(function () {
@@ -5081,16 +5147,30 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
   };
   window.UI = UI;
 
-  /* 定时器：实时价 60s，倒计时 20s */
+  /* 定时器：实时价 60s；盘中同时按 10 分钟节流补日线并重算三策略，倒计时 20s */
   setInterval(function () {
     if (!booted) return;
     var ms = DATA.marketState();
     if (ms.open) {
-      DATA.loadRT(allCodes()).then(function () {
-        computePending();
+      Promise.all([
+        DATA.loadRT(allCodes()),
+        DATA.loadKlines(allCodes()).catch(function () { })
+      ]).then(function () {
+        idx = QE.buildIndex(DATA.klines);
+        lastClosed = calcLastClosed();
+        runAll();
         if (APP.view === 'home') renderHome(); else renderStrat(APP.view);
         pushDaily();
       });
+    } else if (ms.text === '已收盘' && window.__qwCloseFetch !== todayStr()) {
+      /* 收盘后强制补一次日线，拿最终收盘价重算 */
+      window.__qwCloseFetch = todayStr();
+      DATA.loadKlines(allCodes(), null, true).then(function () {
+        idx = QE.buildIndex(DATA.klines);
+        lastClosed = calcLastClosed();
+        runAll();
+        renderAll();
+      }).catch(function () { });
     }
     var cd = $('cdBox');
     if (cd) {
@@ -5135,6 +5215,7 @@ window.OFFTR={"p96563":{"id":"26867","src":"官方净值逐日反推","trades":[
 </script>
 </body>
 </html>
+
 
 
 

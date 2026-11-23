@@ -72,7 +72,7 @@
           if (cur.d[i] > lastB) { dd.push(cur.d[i]); cc.push(cur.c[i]); }
         }
       }
-      D.klines[code] = { d: dd, c: cc };
+      D.klines[code] = { d: dd, c: cc, hl: (cur && cur.hl) || undefined };
       D.biLast[code] = dd[dd.length - 1];
       n++;
     }
@@ -125,7 +125,50 @@
     }, 400);
   }
 
+  /* 腾讯日线（前复权）：script + _var 全局变量，file:// 也能用。
+     返回 [date, open, close, high, low, volume]；与现有历史拼接，只替换取到的区间 */
+  function tencentKline(code, count) {
+    return new Promise(function (res, rej) {
+      var v = 'txk_' + code + '_' + Math.random().toString(36).slice(2);
+      var s = document.createElement('script');
+      var done = false;
+      var t = setTimeout(function () { if (!done) { done = true; clean(); rej(new Error('tx timeout')); } }, 12000);
+      function clean() { clearTimeout(t); if (s.parentNode) s.parentNode.removeChild(s); }
+      s.onload = function () {
+        if (done) return; done = true;
+        var j = window[v]; try { delete window[v]; } catch (e) { window[v] = undefined; }
+        clean();
+        try {
+          var q = j.data[sym(code)];
+          var arr = q.qfqday || q.day;
+          if (!arr || !arr.length) return rej(new Error('tx empty'));
+          var dd = [], cc = [], i, hl = {};
+          for (i = 0; i < arr.length; i++) {
+            dd.push(arr[i][0]); cc.push(parseFloat(arr[i][2]));
+            hl[arr[i][0]] = [parseFloat(arr[i][3]), parseFloat(arr[i][4])];
+          }
+          var cur = D.klines[code], od = [], oc = [];
+          if (cur && cur.d) {
+            for (i = 0; i < cur.d.length; i++) {
+              if (cur.d[i] < dd[0]) { od.push(cur.d[i]); oc.push(cur.c[i]); }
+            }
+          }
+          D.klines[code] = { d: od.concat(dd), c: oc.concat(cc), hl: Object.assign({}, (cur && cur.hl) || {}, hl) };
+          D.meta[code] = { t: Date.now(), last: dd[dd.length - 1], name: (q.qt && q.qt[sym(code)] && q.qt[sym(code)][1]) || (D.meta[code] || {}).name };
+          res(D.klines[code]);
+        } catch (e) { rej(new Error('tx parse')); }
+      };
+      s.onerror = function () { if (done) return; done = true; clean(); rej(new Error('tx network')); };
+      s.src = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=' + sym(code) + ',day,,,' + (count || 320) + ',qfq&_var=' + v + '&_=' + Date.now();
+      document.head.appendChild(s);
+    });
+  }
+
   function fetchKline(code) {
+    return tencentKline(code, 320).catch(function () { return emKline(code); });
+  }
+
+  function emKline(code) {
     var url = 'https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=' + secid(code) +
       '&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f53&klt=101&fqt=1&beg=20190101&end=20500101&lmt=100000';
     return jsonp(url, 15000).then(function (j) {
@@ -144,15 +187,13 @@
   function needFetch(code) {
     var m = D.meta[code], k = D.klines[code];
     if (!m || !k || !k.d || !k.d.length) return true;
-    var lastBar = k.d[k.d.length - 1];
-    if (lastBar >= today()) return false;
-    var age = Date.now() - (m.t || 0);
-    return age > 10 * 60 * 1000;
+    /* 盘中今日bar会随价格变动、收盘后需拿最终收盘价：统一按缓存年龄 10 分钟节流 */
+    return Date.now() - (m.t || 0) > 10 * 60 * 1000;
   }
 
-  function loadKlines(codes, progress) {
+  function loadKlines(codes, progress, force) {
     loadCache();
-    var queue = codes.filter(needFetch);
+    var queue = codes.filter(function (c) { return force || needFetch(c); });
     var total = queue.length, done = 0, idx = 0, active = 0;
     if (!total) { if (progress) progress(1, 1); return Promise.resolve(D.klines); }
     return new Promise(function (resolve) {
@@ -260,17 +301,26 @@
   }
 
   function loadRT(codes) {
+    var need = Math.min(3, codes.length);
     return tencentRT(codes).then(function (a) {
-      if (Object.keys(a).length >= 3) { D.rtSrc = '腾讯'; return a; }
+      if (Object.keys(a).length >= need) { D.rtSrc = '腾讯'; return a; }
       return sinaRT(codes).then(function (s2) {
-        if (Object.keys(s2).length >= 3) { D.rtSrc = '新浪'; return s2; }
+        if (Object.keys(s2).length >= need) { D.rtSrc = '新浪'; return s2; }
         return emRT(codes).then(function (b) {
           D.rtSrc = Object.keys(b).length ? '东财' : '--';
           return Object.keys(b).length ? b : (Object.keys(s2).length ? s2 : a);
         });
       });
     }).then(function (out) {
-      if (Object.keys(out).length) { D.rt = out; D.lastFetch = Date.now(); }
+      if (Object.keys(out).length) {
+        D.rt = out; D.lastFetch = Date.now();
+        /* 腾讯日线只给两位小数：今日bar用实时价（三位小数）覆盖，保证动量/排名精度 */
+        var t = today();
+        for (var c in out) {
+          var k = D.klines[c];
+          if (k && k.d && k.d[k.d.length - 1] === t && out[c].price > 0) k.c[k.c.length - 1] = out[c].price;
+        }
+      }
       return out;
     });
   }

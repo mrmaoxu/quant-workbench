@@ -15,6 +15,8 @@ window.LABVIEW = (function () {
   ];
   var TIMES = ['09:30', '10:30', '13:00', '14:00', '14:30', '14:50', '15:00'];
   var DEFAULT_POOL = ['512890', '161127', '159985', '159941', '518880', '513520', '159915'];
+  /* 内置官方真值只对应该快照日期；其他日期必须走在线接口或本地复算，绝不能拿旧真值冒充 */
+  var SNAP_DATE = '2026-11-22';
 
   var S = null;
 
@@ -55,7 +57,7 @@ window.LABVIEW = (function () {
       '</div>' +
       '<div class="labgo"><button class="btn pri" data-act="calc" id="labGo">▶ 开始计算</button><span class="labmsg" id="labMsg">' + esc(st.err) + '</span></div>' +
       '<div id="labRes">' + resultHTML() + '</div>' +
-      '<div class="vnote" style="margin-top:8px">在线时直连平台公开接口（本地代理，无 CORS），结果与官网逐位一致；接口不可用时用本地复算并标注「本地」。512890 等 7 只已内置平台 25 日真值。</div>' +
+      '<div class="vnote" style="margin-top:8px">在线时直连平台公开接口（本地代理，无 CORS），结果与官网逐位一致；接口不可用时用最新日线本地复算并标注「本地」。内置官方真值仅对应 ' + SNAP_DATE + ' 快照，其他日期一律实时计算。</div>' +
       '</div>' + modalHTML();
   }
 
@@ -155,7 +157,7 @@ window.LABVIEW = (function () {
     for (var i = 0; i < S.pool.length; i++) {
       var code = S.pool[i], v = null, series = null;
       var off = all[m.k] && all[m.k][code];
-      if (off && S.n === 25) { v = off.v; series = off.h.map(function (x) { return x[1]; }).concat([off.t[1]]); srcNote = '官方内置'; }
+      if (off && S.n === 25 && (S.date || '').slice(0, 10) === SNAP_DATE) { v = off.v; series = off.h.map(function (x) { return x[1]; }).concat([off.t[1]]); srcNote = '官方内置'; }
       else {
         var data = LABDATA ? LABDATA.dataFor(code, date, m.src) : null;
         if (data) {
