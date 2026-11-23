@@ -65,6 +65,8 @@
         }
       }
       if (!dd.length) continue;
+      D.clLast = D.clLast || {};
+      D.clLast[code] = dd[dd.length - 1];
       var cur = D.klines[code];
       if (cur && cur.d && cur.d.length) {
         var lastB = dd[dd.length - 1];
@@ -79,19 +81,76 @@
     return n;
   }
 
-  /* 计算完只把「内置基线之后」的增量写缓存，避免 localStorage 爆掉 */
+  /* 计算完只把「内置 clist 基线之后」的增量写缓存（含平台/ktail 补的新交易日），
+     并与已存缓存取并集，避免某次拉取失败把旧增量清掉 */
   function slimCache() {
     var out = {}, code, i;
     for (code in D.klines) {
       var o = D.klines[code];
       if (!o || !o.d) continue;
-      var bi = D.biLast && D.biLast[code];
-      if (!bi) { out[code] = o; continue; }
+      var bi = (D.clLast && D.clLast[code]) || (D.biLast && D.biLast[code]);
+      if (!bi) { out[code] = { d: o.d, c: o.c }; continue; }
       var dd = [], cc = [];
       for (i = 0; i < o.d.length; i++) if (o.d[i] > bi) { dd.push(o.d[i]); cc.push(o.c[i]); }
       if (dd.length) out[code] = { d: dd, c: cc };
     }
     return out;
+  }
+
+  /* 平台动量接口返回的日线尾部（serve.py /api/ktail 或仓库 ktail.js）。
+     平台为后复权口径，与内置前复权基线差一个常数倍：在拼接点用内置收盘锚定缩放，
+     只补「内置最后日期之后」的新交易日，保证引擎净值口径不被污染。 */
+  function mergeKtail(K) {
+    if (!K) return 0;
+    var n = 0;
+    for (var code in K) {
+      var t = K[code], cur = D.klines[code];
+      if (!t || !t.d || !t.d.length || !cur || !cur.d || !cur.d.length) continue;
+      var lastB = cur.d[cur.d.length - 1], lastC = cur.c[cur.c.length - 1];
+      var ai = -1, i;
+      for (i = 0; i < t.d.length; i++) if (t.d[i] === lastB) { ai = i; break; }
+      var ref = ai >= 0 ? t.c[ai] : t.c[t.c.length - 1];
+      if (!(ref > 0) || !(lastC > 0)) continue;
+      var f = lastC / ref;
+      var dd = cur.d.slice(), cc = cur.c.slice(), hl = Object.assign({}, cur.hl || {});
+      var added = 0;
+      for (i = 0; i < t.d.length; i++) {
+        if (t.d[i] > lastB) { dd.push(t.d[i]); cc.push(t.c[i] * f); added++; }
+        if (t.hl && t.hl[t.d[i]]) hl[t.d[i]] = [t.hl[t.d[i]][0] * f, t.hl[t.d[i]][1] * f];
+      }
+      if (added) {
+        D.klines[code] = { d: dd, c: cc, hl: hl };
+        D.biLast[code] = dd[dd.length - 1];
+        D.meta[code] = { t: Date.now(), last: dd[dd.length - 1], name: (D.meta[code] || {}).name };
+        n++;
+      } else if (Object.keys(hl).length) {
+        cur.hl = hl;
+      }
+    }
+    return n;
+  }
+
+  function applyKtail() { mergeKtail(root.KTAIL); }
+
+  /* 在线（localhost 代理）：直接用平台接口补日线尾部，绕开行情站限流 */
+  function platformKtail(codes) {
+    if (location.protocol.indexOf('http') !== 0) return Promise.resolve(0);
+    return fetch('/api/ktail?codes=' + codes.join(','), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || j.code !== 0) return 0;
+        var n = mergeKtail(j.data);
+        D.platCovered = D.platCovered || {};
+        for (var c in j.data) {
+          var t = j.data[c];
+          if (t && t.d && t.d.length) {
+            D.meta[c] = { t: Date.now(), last: t.d[t.d.length - 1], name: (D.meta[c] || {}).name };
+            D.platCovered[c] = 1;
+          }
+        }
+        return n;
+      })
+      .catch(function () { return 0; });
   }
 
   function loadCache() {
@@ -101,6 +160,7 @@
       D.klines = k || {}; D.meta = m || {};
     } catch (e) { D.klines = {}; D.meta = {}; }
     applyBuiltin();
+    applyKtail();
   }
 
   var saveTimer = null;
@@ -108,7 +168,20 @@
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
       try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(slimCache()));
+        /* 与已存增量取并集（新值覆盖同日期），失败的一次拉取不会清掉旧增量 */
+        var slim = slimCache(), old = {}, c, i;
+        try { old = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') || {}; } catch (e) { old = {}; }
+        for (c in slim) {
+          var o = old[c], nw = slim[c];
+          if (!o || !o.d) { old[c] = nw; continue; }
+          var map = {}, dd = [], cc = [];
+          for (i = 0; i < o.d.length; i++) map[o.d[i]] = o.c[i];
+          for (i = 0; i < nw.d.length; i++) map[nw.d[i]] = nw.c[i];
+          var ks = Object.keys(map).sort();
+          for (i = 0; i < ks.length; i++) { dd.push(ks[i]); cc.push(map[ks[i]]); }
+          old[c] = { d: dd, c: cc };
+        }
+        localStorage.setItem(CACHE_KEY, JSON.stringify(old));
         localStorage.setItem(META_KEY, JSON.stringify(D.meta));
       } catch (e) {
         // 超限时只保留最近 3 年
@@ -165,7 +238,10 @@
   }
 
   function fetchKline(code) {
-    return tencentKline(code, 320).catch(function () { return emKline(code); });
+    /* 腾讯对突发并发限流(501)：失败退避 2s 重试一次，再兜底东财 */
+    return tencentKline(code, 320).catch(function () {
+      return new Promise(function (r) { setTimeout(r, 2000); }).then(function () { return tencentKline(code, 320); });
+    }).catch(function () { return emKline(code); });
   }
 
   function emKline(code) {
@@ -193,26 +269,32 @@
 
   function loadKlines(codes, progress, force) {
     loadCache();
-    var queue = codes.filter(function (c) { return force || needFetch(c); });
-    var total = queue.length, done = 0, idx = 0, active = 0;
-    if (!total) { if (progress) progress(1, 1); return Promise.resolve(D.klines); }
-    return new Promise(function (resolve) {
-      function next() {
-        if (idx >= queue.length && active === 0) { saveCache(); return resolve(D.klines); }
-        while (active < 4 && idx < queue.length) {
-          (function (code) {
-            active++; idx++;
-            fetchKline(code).then(function () { }, function (e) {
-              D.errors.push(code + ':' + e.message);
-            }).then(function () {
-              active--; done++;
-              if (progress) progress(done, total);
-              next();
-            });
-          })(queue[idx]);
+    /* 先用平台接口补日线尾部（不受行情站限流影响），已覆盖的不再走腾讯/东财 */
+    return platformKtail(codes).then(function () {
+      var queue = codes.filter(function (c) {
+        if (D.platCovered && D.platCovered[c]) return false;
+        return force || needFetch(c);
+      });
+      var total = queue.length, done = 0, idx = 0, active = 0;
+      if (!total) { saveCache(); if (progress) progress(1, 1); return Promise.resolve(D.klines); }
+      return new Promise(function (resolve) {
+        function next() {
+          if (idx >= queue.length && active === 0) { saveCache(); return resolve(D.klines); }
+          while (active < 2 && idx < queue.length) {
+            (function (code) {
+              active++; idx++;
+              fetchKline(code).then(function () { }, function (e) {
+                D.errors.push(code + ':' + e.message);
+              }).then(function () {
+                active--; done++;
+                if (progress) progress(done, total);
+                next();
+              });
+            })(queue[idx]);
+          }
         }
-      }
-      next();
+        next();
+      });
     });
   }
 

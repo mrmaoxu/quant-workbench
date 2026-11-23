@@ -42,10 +42,53 @@ class Handler(SimpleHTTPRequestHandler):
         if m:
             self._get(FUNDSEARCH % urllib.parse.quote(urllib.parse.unquote(m.group(1))))
             return
+        m = re.match(r'^/api/ktail\?codes=([0-9,]+)$', self.path)
+        if m:
+            self._ktail(m.group(1).split(','))
+            return
         path_only = self.path.split('?')[0]
         if path_only == '/':
             self.path = '/index.html'
         return super().do_GET()
+
+    def _ktail(self, codes):
+        """用平台动量接口的 calculation_series 取日线尾部（收盘 + 高低价），不受行情站限流影响"""
+        import datetime
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        out = {}
+        try:
+            for typ, want_hl in (('simple_close', False), ('rsrs', True)):
+                body = json.dumps({
+                    'momentum_calculation_type': typ, 'momentum_period': 60,
+                    'etf_pool': codes, 'end_date': today, 'end_time': '15:00:00'}).encode('utf-8')
+                req = urllib.request.Request(
+                    MOMENTUM, data=body, method='POST',
+                    headers={'User-Agent': UA, 'Content-Type': 'application/json',
+                             'Accept': 'application/json',
+                             'Origin': 'https://www.cifangquant.com',
+                             'Referer': 'https://www.cifangquant.com/tool/momentum'})
+                with urllib.request.urlopen(req, timeout=40) as resp:
+                    j = json.loads(resp.read().decode('utf-8'))
+                for x in (j.get('data') or {}).get('etf_momentum_data', []):
+                    c = str(x.get('etf_code'))
+                    s = x.get('calculation_series') or {}
+                    hist = s.get('history') or []
+                    tgt = s.get('target') or {}
+                    e = out.setdefault(c, {'d': [], 'c': [], 'hl': {}})
+                    if not want_hl:
+                        e['d'] = [h['date'] for h in hist]
+                        e['c'] = [h['price'] for h in hist]
+                        if tgt.get('date') and tgt.get('price'):
+                            e['d'].append(tgt['date']); e['c'].append(tgt['price'])
+                    else:
+                        for h in hist:
+                            if h.get('high') is not None and h.get('low') is not None:
+                                e['hl'][h['date']] = [h['high'], h['low']]
+                        if tgt.get('date') and tgt.get('high') is not None:
+                            e['hl'][tgt['date']] = [tgt['high'], tgt['low']]
+            self._send(200, json.dumps({'code': 0, 'data': out}).encode('utf-8'))
+        except Exception as exc:
+            self._send(502, json.dumps({'error': str(exc)}).encode('utf-8'))
 
     def do_POST(self):
         if self.path.split('?')[0] == '/api/momentum':
