@@ -1778,7 +1778,9 @@
     if (typeof TDXR === 'undefined' || !TDXR || !TDXR[code]) return null;
     var td = TDXR[code], ds = Object.keys(td).sort(), out = [], i;
     for (i = 0; i < ds.length && ds[i] <= date; i++) out.push(td[ds[i]]);
-    return out.length >= 25 ? out : null;
+    /* 仅当快照恰好覆盖到请求日才可用，否则返回 null，避免把旧日 14:30 序列错标/错算成当日 */
+    if (out.length < 25 || ds[i - 1] !== date) return null;
+    return out;
   }
   function tdxLast() {
     if (typeof TDXR === 'undefined' || !TDXR || !TDXR['512890']) return '';
@@ -1790,15 +1792,19 @@
     var d = (typeof SNAP !== 'undefined' && SNAP.s) ? (SNAP.s[id] || {}) : {};
     var mom = d.mom || {};
     var tlast = tdxLast();
-    var date = tlast || a.lastDate || (idx.calendar.length ? idx.calendar[idx.calendar.length - 1] : '');
+    /* 排名跟随最新交易日（含平台/ktail 补的当日），不再钉死在 TDXR 静态快照日 */
+    var calLast = idx.calendar.length ? idx.calendar[idx.calendar.length - 1] : '';
+    var date = calLast || a.lastDate || tlast;
     var held = {}, c;
     for (c in a.pos) if (a.pos[c] && a.pos[c].sh > 0) held[c] = 1;
     var out = [];
     (s.pool || []).forEach(function (it) {
       var code = it.c || it[0], nm = it.n || it[1];
-      var ser = series1430(code, date) || QE.seriesTo(idx, code, date) || [];
+      /* 历史日（TDXR 覆盖区间内）用 14:30 真值；当日/更新日用最新日线（含实时价） */
+      var use1430 = !!(tlast && date <= tlast);
+      var ser = (use1430 ? series1430(code, date) : null) || QE.seriesTo(idx, code, date) || [];
       if (ser.length < 3) return;
-      var src1430 = !!(series1430(code, date));
+      var src1430 = use1430 && !!(series1430(code, date));
       var px = ser[ser.length - 1], prev = ser[ser.length - 2];
       var chg = prev > 0 ? px / prev - 1 : 0;
       var ref = ser.slice(0, ser.length - 1);
@@ -1813,7 +1819,7 @@
         } else {
           var win = mom.m1 || 25;
           var momSer = ser, momSrc = '';
-          if (typeof OFFMOM !== 'undefined' && OFFMOM && OFFMOM[code] && OFFMOM[code].p && date >= OFFMOM[code].end) {
+          if (typeof OFFMOM !== 'undefined' && OFFMOM && OFFMOM[code] && OFFMOM[code].p && date === OFFMOM[code].end) {
             momSer = OFFMOM[code].p.map(function (x) { return x[1]; });
             momSrc = OFFMOM[code].src;
           }
@@ -2030,9 +2036,10 @@
         '<td>' + badge + '</td></tr>';
     });
     var fb = (d.cfg && d.cfg.fallback && String(d.cfg.fallback) !== '0') ? d.cfg.fallback : null;
-    var effD = tdxLast() || ((typeof idx !== 'undefined' && idx && idx.calendar && idx.calendar.length)
-      ? idx.calendar[idx.calendar.length - 1] : (a.lastDate || '最新'));
+    var effD = ((typeof idx !== 'undefined' && idx && idx.calendar && idx.calendar.length)
+      ? idx.calendar[idx.calendar.length - 1] : (a.lastDate || tdxLast() || '最新'));
     var use1430 = !!(ranks.length && ranks[0].src1430);
+    var hasOff = ranks.some(function (r) { return r.momSrc; });
     html += '</tbody></table></div><div class="vnote" style="margin-top:8px">判定规则：' +
       (isPct ? (win + ' 日涨幅') : (win + ' 日加权斜率（年化斜率 × 加权 R²）')) +
       ' 得分落在 <b>' + (lo != null ? fmtScore(lo, isPct) : '—') + ' ~ ' + (hi != null ? fmtScore(hi, isPct) : '—') +
@@ -2041,8 +2048,8 @@
       ' · 得分以<b>小数</b>计，0.352 即 <b>35.2%</b>（区间 0~2.000 对应 0~200%）' +
       ' · 乖离 = 现价/MA20 − 1 · 按 ' + esc(String(effD).length === 8
         ? String(effD).slice(0, 4) + '-' + String(effD).slice(4, 6) + '-' + String(effD).slice(6) : String(effD)) +
-      (use1430 ? ' <b>14:30 分时价</b>复算（官网口径）' : ' 收盘价复算（该段无 14:30 数据）') +
-      ' · 标「官网」者用官网「动量计算过程」弹窗的 25 点后复权真值（512890 = slope 0.001918 / 年化 0.6151 / R² 0.6928 / 评分 <b>0.4261</b>），其余六只官网弹窗价未取到，用不复权 14:30 价近似' +
+      (use1430 ? ' <b>14:30 分时价</b>复算（官网口径）' : ' 最新收盘价复算') +
+      (hasOff ? ' · 标「官网」者用官网「动量计算过程」弹窗的 25 点后复权真值（512890 = slope 0.001918 / 年化 0.6151 / R² 0.6928 / 评分 <b>0.4261</b>），其余用不复权 14:30 价近似' : ' · 得分随最新交易日实时重算') +
       ' · 溢价需实时 IOPV，离线留空</div></div>';
     return html;
   }
